@@ -43,7 +43,9 @@ h3.per-laser::after { content: " · laser sélectionné"; color: var(--dim); tex
 
 .ctl { margin: 7px 0; }
 .ctl label { display: flex; justify-content: space-between; gap: 8px; color: var(--text); }
-.ctl label output { color: var(--dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ctl label output { color: var(--dim); font-variant-numeric: tabular-nums; white-space: nowrap; cursor: text; border-bottom: 1px dotted transparent; }
+.ctl label output:hover { color: var(--accent2); border-bottom-color: var(--accent2); }
+.ctl label input.num { width: 76px; background: #0e0b1a; color: var(--accent2); border: 1px solid var(--accent2); border-radius: 3px; padding: 0 4px; font: inherit; text-align: right; }
 .ctl input[type=range] { width: 100%; accent-color: var(--accent); margin: 2px 0 0; }
 .ctl select { width: 100%; background: #0e0b1a; color: var(--text); border: 1px solid var(--line); border-radius: 4px; padding: 4px; margin-top: 3px; }
 .ctl.check label { justify-content: flex-start; cursor: pointer; }
@@ -99,6 +101,12 @@ ul { list-style: none; margin: 0; padding: 0; }
 #waiting.hidden { display: none; }
 #ports div { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
 #ports i { width: 8px; height: 8px; border-radius: 50%; }
+
+#views { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); display: flex; gap: 4px; z-index: 3; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px; backdrop-filter: blur(8px); }
+#views button { background: transparent; color: var(--dim); border: 0; border-radius: 5px; padding: 5px 9px; font: 12px system-ui, sans-serif; cursor: pointer; white-space: nowrap; }
+#views button:hover { background: #1f1836; color: var(--text); }
+#views button[data-v="hide"] { border-left: 1px solid var(--line); border-radius: 0 5px 5px 0; color: var(--accent2); }
+body.bare .panel, body.bare #waiting { display: none; }
 
 @media (max-width: 1000px) {
   .panel { width: 250px; }

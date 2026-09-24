@@ -37,6 +37,7 @@ const G_DEFAULTS = {
   roomH: 8, walls: true, people: true, audience: true, audH: 3,
   haze: 0.5, smoke: 0.8, smokeSize: 1.5, smokeHeight: 4, smokeRise: 0.1, windSpeed: 0.3, windDir: 90, swirl: 0.6,
   exposure: 1.4, beamGain: 2.5, spotGain: 2.5, roomLight: 0.5, persist: 40, bloom: 1.2, quality: 'mid',
+  beamWidth: 1.6, forward: 0.35, look: 'neon',
 };
 
 // ================================================================ état sauvegardé
@@ -115,7 +116,10 @@ const SCHEMA = [
   ['G', 'range', 'beamGain', 'Faisceaux dans la fumée', 0.1, 8, 0.1, (v) => v.toFixed(1)],
   ['G', 'range', 'spotGain', 'Impacts sur les surfaces', 0.1, 8, 0.1, (v) => v.toFixed(1)],
   ['G', 'range', 'roomLight', 'Éclairage de la salle', 0, 2, 0.05, (v) => v.toFixed(2)],
+  ['G', 'range', 'beamWidth', 'Épaisseur des faisceaux', 1, 5, 0.1, (v) => v.toFixed(1) + ' px'],
+  ['G', 'range', 'forward', 'Diffusion vers l\'avant', 0, 0.8, 0.01, (v) => (v === 0 ? 'uniforme' : v.toFixed(2))],
   ['G', 'range', 'bloom', 'Halo', 0, 3, 0.05, (v) => v.toFixed(2)],
+  ['G', 'select', 'look', 'Style de rendu', { neon: 'Néon (couleurs pures)', camera: 'Caméra (cœurs blancs)' }],
   ['G', 'range', 'persist', 'Persistance rétinienne', 10, 120, 1, (v) => v + ' ms'],
   ['G', 'select', 'quality', 'Qualité du rendu', { low: 'Légère (PC modeste)', mid: 'Normale', high: 'Haute' }],
 ];
@@ -190,23 +194,56 @@ float noise(vec3 x){
              mix(mix(hash(i + vec3(0,0,1)), hash(i + vec3(1,0,1)), f.x), mix(hash(i + vec3(0,1,1)), hash(i + vec3(1,1,1)), f.x), f.y), f.z);
 }`;
 
-const beamMat = new THREE.ShaderMaterial({
-  uniforms: {
-    uTime: { value: 0 }, uGain: { value: 1 }, uHaze: { value: 0.5 },
-    uSmoke: { value: 0.8 }, uSmokeSize: { value: 1.5 }, uSmokeHeight: { value: 4 },
-    uOffset: { value: new THREE.Vector3() }, uSwirl: { value: 0.6 },
-  },
+// Uniforms communs à tous les lasers ; chaque laser ajoute son uOrigin.
+const beamUniforms = {
+  uTime: { value: 0 }, uGain: { value: 1 }, uHaze: { value: 0.5 },
+  uSmoke: { value: 0.8 }, uSmokeSize: { value: 1.5 }, uSmokeHeight: { value: 4 },
+  uOffset: { value: new THREE.Vector3() }, uSwirl: { value: 0.6 },
+  uPixAngle: { value: 0.001 }, uMinPx: { value: 1.6 }, uForward: { value: 0.35 },
+  uBeamBase: { value: 0.004 }, uBeamDiv: { value: 0.0015 },
+};
+
+// Chaque faisceau est un ruban tourné vers la caméra (instancié) : largeur physique
+// (diamètre + divergence) ou largeur mini à l'écran, profil gaussien doux.
+const beamShader = {
   vertexShader: /* glsl */`
-    attribute vec3 color; attribute float along;
-    varying vec3 vColor; varying vec3 vWorld; varying float vAlong;
-    void main(){ vColor = color; vAlong = along; vec4 wp = modelMatrix * vec4(position, 1.0); vWorld = wp.xyz; gl_Position = projectionMatrix * viewMatrix * wp; }`,
+    uniform vec3 uOrigin;
+    uniform float uPixAngle, uMinPx, uBeamBase, uBeamDiv;
+    attribute vec2 corner;          // x : 0 = sortie du laser, 1 = impact ; y : côté -1 / +1
+    attribute vec3 iEnd;
+    attribute vec3 iColor;
+    varying vec3 vColor; varying vec3 vWorld; varying float vAlong; varying float vSide; varying vec3 vDir;
+    void main(){
+      vec3 seg = iEnd - uOrigin;
+      float len = length(seg);
+      vec3 dir = len > 1e-5 ? seg / len : vec3(0.0, 0.0, 1.0);
+      vec3 P = uOrigin + seg * corner.x;
+      vec3 toCam = cameraPosition - P;
+      vec3 side = cross(dir, toCam);
+      float sl = length(side);
+      side = sl > 1e-6 ? side / sl : vec3(1.0, 0.0, 0.0);
+      float along = len * corner.x;
+      float phys = uBeamBase + uBeamDiv * along;
+      float minW = uMinPx * uPixAngle * length(toCam);
+      float w = max(phys, minW);
+      vColor = iColor * (minW / w);   // même énergie, étalée si le faisceau est large à l'écran
+      P += side * corner.y * w;
+      vWorld = P; vAlong = along; vSide = corner.y; vDir = dir;
+      gl_Position = projectionMatrix * viewMatrix * vec4(P, 1.0);
+    }`,
   fragmentShader: /* glsl */`
-    uniform float uTime, uGain, uHaze, uSmoke, uSmokeSize, uSmokeHeight, uSwirl;
+    uniform float uTime, uGain, uHaze, uSmoke, uSmokeSize, uSmokeHeight, uSwirl, uForward;
     uniform vec3 uOffset;
-    varying vec3 vColor; varying vec3 vWorld; varying float vAlong;
+    varying vec3 vColor; varying vec3 vWorld; varying float vAlong; varying float vSide; varying vec3 vDir;
     ${NOISE}
     float fbm(vec3 p){ return noise(p) * 0.55 + noise(p * 2.03 + 1.7) * 0.3 + noise(p * 4.1 + 4.3) * 0.15; }
     void main(){
+      float profile = exp(-vSide * vSide * 3.0);
+      // Diffusion de Henyey-Greenstein : plus brillant quand on regarde vers le laser.
+      float c = dot(vDir, normalize(cameraPosition - vWorld));
+      float g = uForward;
+      float phase = pow(1.0 + g * g, 1.5) / pow(1.0 + g * g - 2.0 * g * c, 1.5);
+
       // Haze : quasi homogène, légères variations lentes.
       float haze = uHaze * (0.85 + 0.3 * noise(vWorld * 0.15 + vec3(uTime * 0.02, 0.0, uTime * 0.015)));
       // Fumée : transportée par le vent et la montée (uOffset = déplacement cumulé en mètres),
@@ -220,10 +257,24 @@ const beamMat = new THREE.ShaderMaterial({
       float layer = exp(-max(vWorld.y, 0.0) / uSmokeHeight);
       float smoke = uSmoke * clouds * layer * 3.0;
       float fade = exp(-0.03 * vAlong);
-      gl_FragColor = vec4(vColor * (haze + smoke) * fade * uGain, 1.0);
+      gl_FragColor = vec4(vColor * (haze + smoke) * fade * uGain * profile * phase, 1.0);
     }`,
-  blending: THREE.AdditiveBlending, transparent: true, depthWrite: false,
-});
+};
+
+// Halo radial pour la sortie du laser.
+const glowTex = (() => {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const x = c.getContext('2d');
+  const g = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.15, 'rgba(255,255,255,0.6)');
+  g.addColorStop(0.5, 'rgba(255,255,255,0.12)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  x.fillStyle = g;
+  x.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(c);
+})();
 
 const spotMat = new THREE.ShaderMaterial({
   uniforms: { uGain: { value: 1 } },
@@ -250,9 +301,19 @@ function dynAttr(geo, name, arr, size) {
 /** Objets 3D d'un laser : projecteur + faisceaux + impacts + tracé au sol. */
 function createLaserObjects(tag) {
   const o = {};
-  o.beamPos = new Float32Array(MAXSEG * 6); o.beamCol = new Float32Array(MAXSEG * 6); o.beamAlong = new Float32Array(MAXSEG * 2);
-  o.beamGeo = new THREE.BufferGeometry();
-  dynAttr(o.beamGeo, 'position', o.beamPos, 3); dynAttr(o.beamGeo, 'color', o.beamCol, 3); dynAttr(o.beamGeo, 'along', o.beamAlong, 1);
+  o.beamEnd = new Float32Array(MAXSEG * 3); o.beamCol = new Float32Array(MAXSEG * 3);
+  o.beamGeo = new THREE.InstancedBufferGeometry();
+  o.beamGeo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(12), 3)); // inutilisé, requis par three.js
+  o.beamGeo.setAttribute('corner', new THREE.Float32BufferAttribute([0, -1, 0, 1, 1, -1, 1, 1], 2));
+  o.beamGeo.setIndex([0, 2, 1, 1, 2, 3]);
+  o.beamGeo.setAttribute('iEnd', new THREE.InstancedBufferAttribute(o.beamEnd, 3).setUsage(THREE.DynamicDrawUsage));
+  o.beamGeo.setAttribute('iColor', new THREE.InstancedBufferAttribute(o.beamCol, 3).setUsage(THREE.DynamicDrawUsage));
+  o.beamGeo.instanceCount = 0;
+  o.beamMat = new THREE.ShaderMaterial({
+    ...beamShader,
+    uniforms: { ...beamUniforms, uOrigin: { value: new THREE.Vector3() } },
+    blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, side: THREE.DoubleSide,
+  });
   o.spotPos = new Float32Array(MAXSEG * 3); o.spotCol = new Float32Array(MAXSEG * 3);
   o.spotGeo = new THREE.BufferGeometry();
   dynAttr(o.spotGeo, 'position', o.spotPos, 3); dynAttr(o.spotGeo, 'color', o.spotCol, 3);
@@ -261,10 +322,13 @@ function createLaserObjects(tag) {
   dynAttr(o.traceGeo, 'position', o.tracePos, 3); dynAttr(o.traceGeo, 'color', o.traceCol, 3);
 
   o.group = new THREE.Group();
-  for (const obj of [new THREE.LineSegments(o.beamGeo, beamMat), new THREE.Points(o.spotGeo, spotMat), new THREE.LineSegments(o.traceGeo, traceMat)]) {
+  for (const obj of [new THREE.Mesh(o.beamGeo, o.beamMat), new THREE.Points(o.spotGeo, spotMat), new THREE.LineSegments(o.traceGeo, traceMat)]) {
     obj.frustumCulled = false;
     o.group.add(obj);
   }
+  o.glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, color: 0x000000 }));
+  o.glow.scale.setScalar(0.9);
+  o.group.add(o.glow);
   o.projector = new THREE.Group();
   o.projector.rotation.order = 'YXZ';
   const body = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.18, 0.4), new THREE.MeshStandardMaterial({ color: 0x4a5064, roughness: 0.5 }));
@@ -278,7 +342,7 @@ function createLaserObjects(tag) {
 
 function disposeLaserObjects(o) {
   scene.remove(o.group, o.projector);
-  o.beamGeo.dispose(); o.spotGeo.dispose(); o.traceGeo.dispose();
+  o.beamGeo.dispose(); o.spotGeo.dispose(); o.traceGeo.dispose(); o.beamMat.dispose(); o.glow.material.dispose();
 }
 
 // ---- post-traitement
@@ -296,8 +360,50 @@ function resize() {
   composer.setSize(innerWidth, innerHeight);
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
+  // Taille d'un pixel écran à 1 m de la caméra (pour la largeur mini des faisceaux).
+  beamUniforms.uPixAngle.value = (2 * Math.tan((camera.fov * D2R) / 2)) / innerHeight;
 }
 addEventListener('resize', resize);
+
+// ---- vues rapides
+const VIEWS = {
+  public: { label: 'Public', key: '1', get: () => [[0, 1.7, 15], [0, 3.5, -8]] },
+  stage:  { label: 'Scène', key: '2', get: () => [[0, 3, -11.5], [0, 2.5, 8]] },
+  top:    { label: 'Dessus', key: '3', get: () => [[0, G.roomH + 16, 3.5], [0, 0, 3]] },
+  side:   { label: 'Côté', key: '4', get: () => [[19, 4.5, 3], [0, 3, 3]] },
+  laser:  { label: 'Derrière le laser', key: '5', get: () => {
+    const l = lasers[sel];
+    if (!l) return null;
+    const e = l.obj.projector.matrixWorld.elements;
+    const p = l.obj.projector.position;
+    return [[p.x - e[8] * 1.5, p.y - e[9] * 1.5 + 0.35, p.z - e[10] * 1.5], [p.x + e[8] * 10, p.y + e[9] * 10, p.z + e[10] * 10]];
+  } },
+  free:   { label: 'Libre', key: '0', get: () => [[13, 5, 17], [0, 2, 2]] },
+};
+let tween = null;
+function goView(name) {
+  const v = VIEWS[name]?.get();
+  if (!v) return;
+  tween = { t: 0, p0: camera.position.clone(), t0: orbit.target.clone(), p1: new THREE.Vector3(...v[0]), t1: new THREE.Vector3(...v[1]) };
+}
+const viewsEl = document.getElementById('views');
+viewsEl.innerHTML = Object.entries(VIEWS).map(([k, v]) => `<button data-v="${k}" title="Touche ${v.key}">${v.label}</button>`).join('') +
+  '<button data-v="hide" title="Touche H">Masquer les panneaux</button>';
+viewsEl.addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.dataset.v === 'hide') togglePanels(); else goView(b.dataset.v);
+});
+function togglePanels() {
+  document.body.classList.toggle('bare');
+  viewsEl.querySelector('[data-v="hide"]').textContent = document.body.classList.contains('bare') ? 'Afficher les panneaux' : 'Masquer les panneaux';
+}
+addEventListener('keydown', (e) => {
+  if (e.target.closest('input, select, textarea') || e.ctrlKey || e.altKey || e.metaKey) return;
+  if (e.key === 'h' || e.key === 'H') return togglePanels();
+  const v = Object.entries(VIEWS).find(([, x]) => x.key === e.key);
+  if (v) goView(v[0]);
+});
 
 // ================================================================ lasers
 const lasers = [];   // { index, cfg, sim, obj, status, hist, recentT, level }
@@ -336,6 +442,7 @@ function updateScene() {
   audBox.scale.y = G.audH;
   audBox.position.set((AUD.x0 + AUD.x1) / 2, G.audH / 2, (AUD.z0 + AUD.z1) / 2);
   bloomPass.strength = G.bloom;
+  renderer.toneMapping = G.look === 'camera' ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping;
   ambient.intensity = G.roomLight;
   hemi.intensity = G.roomLight * 0.6;
   for (const l of lasers) placeProjector(l);
@@ -372,12 +479,39 @@ function buildUI() {
       out = document.createElement('output');
       lab.append(label, out);
       wrap.append(lab, input);
-      input.addEventListener('input', () => {
+      const setValue = (v) => {
         const t = target(scope);
-        t[key] = Number(input.value);
+        t[key] = v;
         if (scope === 'L' && PROFILE_KEYS.includes(key)) t.profile = 'custom';
-        if (scope === 'L' && ['py', 'pz', 'pitch', 'yaw'].includes(key)) t.place = 'custom';
+        if (scope === 'L' && ['px', 'py', 'pz', 'pitch', 'yaw'].includes(key)) t.place = 'custom';
         changed(scope, key);
+      };
+      input.addEventListener('input', () => setValue(Number(input.value)));
+      // Clic sur la valeur : saisie au clavier (Entrée pour valider, Échap pour annuler).
+      out.title = 'Cliquer pour taper une valeur';
+      out.addEventListener('click', () => {
+        const field = Object.assign(document.createElement('input'), { type: 'text', className: 'num', value: target(scope)[key] });
+        out.replaceWith(field);
+        field.focus();
+        field.select();
+        let done = false;
+        const finish = (apply) => {
+          if (done) return;
+          done = true;
+          const v = parseFloat(field.value.replace(',', '.'));
+          if (apply && Number.isFinite(v)) {
+            const clamped = Math.min(b, Math.max(a, v));
+            input.value = clamped;
+            setValue(clamped);
+          }
+          field.replaceWith(out);
+          out.textContent = fmt(target(scope)[key]);
+        };
+        field.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') finish(true);
+          else if (e.key === 'Escape') finish(false);
+        });
+        field.addEventListener('blur', () => finish(true));
       });
     } else if (type === 'check') {
       input = Object.assign(document.createElement('input'), { type: 'checkbox' });
@@ -520,6 +654,7 @@ function buildBeams(l, now, budget) {
   const e = o.projector.matrixWorld.elements;
   const ox = cfg.px, oy = cfg.py, oz = cfg.pz;
   let seg = 0, tr = 0, litN = 0, audHits = 0;
+  let sumR = 0, sumG = 0, sumB = 0;
   let prevHit = false, prevK = -1, phx = 0, phy = 0, phz = 0;
   for (let k = first; k <= last; k += step) {
     const j = k & R;
@@ -532,11 +667,10 @@ function buildBeams(l, now, budget) {
     dx *= inv; dy *= inv; dz *= inv;
     const th = rayHit(ox, oy, oz, dx, dy, dz);
     const t = Math.abs(th);
-    const p6 = seg * 6, p3 = seg * 3, p2 = seg * 2;
-    o.beamPos[p6] = ox; o.beamPos[p6 + 1] = oy; o.beamPos[p6 + 2] = oz;
-    o.beamPos[p6 + 3] = ox + dx * t; o.beamPos[p6 + 4] = oy + dy * t; o.beamPos[p6 + 5] = oz + dz * t;
-    o.beamCol[p6] = o.beamCol[p6 + 3] = r; o.beamCol[p6 + 1] = o.beamCol[p6 + 4] = g; o.beamCol[p6 + 2] = o.beamCol[p6 + 5] = b;
-    o.beamAlong[p2] = 0; o.beamAlong[p2 + 1] = t;
+    const p3 = seg * 3;
+    o.beamEnd[p3] = ox + dx * t; o.beamEnd[p3 + 1] = oy + dy * t; o.beamEnd[p3 + 2] = oz + dz * t;
+    o.beamCol[p3] = r; o.beamCol[p3 + 1] = g; o.beamCol[p3 + 2] = b;
+    sumR += r; sumG += g; sumB += b;
     if (th > 0) {
       const ts = t - 0.01;
       const hx = ox + dx * ts, hy = oy + dy * ts, hz = oz + dz * ts;
@@ -563,10 +697,14 @@ function buildBeams(l, now, budget) {
     if (G.audience && (litN & 3) === 0 && hitsAudience(ox, oy, oz, dx, dy, dz, t)) audHits++;
     if (++seg >= MAXSEG) break;
   }
-  o.beamGeo.setDrawRange(0, seg * 2);
+  o.beamMat.uniforms.uOrigin.value.set(ox, oy, oz);
+  o.beamGeo.instanceCount = seg;
   o.spotGeo.setDrawRange(0, seg);
   o.traceGeo.setDrawRange(0, tr * 2);
-  for (const a of ['position', 'color', 'along']) o.beamGeo.attributes[a].needsUpdate = true;
+  o.beamGeo.attributes.iEnd.needsUpdate = o.beamGeo.attributes.iColor.needsUpdate = true;
+  // Sortie du laser : brille de la couleur moyenne émise (la somme des poids ≈ 1 pour un tracé continu).
+  o.glow.position.set(ox + e[8] * 0.03, oy + e[9] * 0.03, oz + e[10] * 0.03);
+  o.glow.material.color.setRGB(sumR, sumG, sumB).multiplyScalar(1.5 * G.exposure);
   o.spotGeo.attributes.position.needsUpdate = o.spotGeo.attributes.color.needsUpdate = true;
   o.traceGeo.attributes.position.needsUpdate = o.traceGeo.attributes.color.needsUpdate = true;
   if (audHits > 0) sim.C.audience++;
@@ -818,13 +956,15 @@ function frame() {
   // Déplacements intégrés : changer un réglage ne fait pas sauter la fumée.
   const dt = Math.min(0.1, clock.getDelta());
   const wd = G.windDir * D2R;
-  const off = beamMat.uniforms.uOffset.value;
+  const u = beamUniforms;
+  const off = u.uOffset.value;
   off.x += Math.sin(wd) * G.windSpeed * dt;
   off.z += Math.cos(wd) * G.windSpeed * dt;
   off.y += G.smokeRise * dt;
   smokeT += dt * (0.1 + 0.5 * G.swirl);
-  const u = beamMat.uniforms;
   u.uTime.value = smokeT;
+  u.uMinPx.value = G.beamWidth;
+  u.uForward.value = G.forward;
   u.uSwirl.value = G.swirl;
   u.uHaze.value = G.haze;
   u.uSmoke.value = G.smoke;
@@ -842,6 +982,13 @@ function frame() {
   audBox.material.color.setHex(audienceFlag > 0.5 ? 0xa02838 : 0x5a1c24);
 
   drawScope(now);
+  if (tween) {
+    tween.t = Math.min(1, tween.t + dt / 0.7);
+    const k = tween.t * tween.t * (3 - 2 * tween.t);
+    camera.position.lerpVectors(tween.p0, tween.p1, k);
+    orbit.target.lerpVectors(tween.t0, tween.t1, k);
+    if (tween.t >= 1) tween = null;
+  }
   orbit.update();
   composer.render();
   frameMs = frameMs * 0.95 + (performance.now() - now) * 0.05;
