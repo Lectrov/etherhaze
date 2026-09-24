@@ -21,6 +21,7 @@ const PLACES = {
   stage:   { label: 'Scène → au-dessus du public', py: 3.5, pz: -10, pitch: -15, yaw: 0 },
   ceiling: { label: 'Plafond → forme au sol', py: 7.5, pz: 2, pitch: 90, yaw: 0 },
   screen:  { label: 'Fond de salle → mur', py: 2.2, pz: 10, pitch: 0, yaw: 180 },
+  floor:   { label: 'Au sol → vers le haut', py: 0.2, pz: -8, pitch: -90, yaw: 0 },
 };
 
 const TAG_COLORS = ['#ff3ea5', '#00e5ff', '#ffd23f', '#7cff6b', '#b36bff', '#ff7a3d', '#3d8bff', '#ff4d5e'];
@@ -90,9 +91,9 @@ const SCHEMA = [
   ['L', 'h', 'Position du laser'],
   ['L', 'select', 'place', 'Placement', { ...opt(PLACES), custom: 'Personnalisé' }],
   ['L', 'range', 'px', 'Position gauche / droite', -9.5, 9.5, 0.1, m1],
-  ['L', 'range', 'py', 'Hauteur', 0.5, 29.9, 0.1, m1],
+  ['L', 'range', 'py', 'Hauteur', 0.1, 29.9, 0.1, m1],
   ['L', 'range', 'pz', 'Profondeur (scène → fond)', -11.5, 17.5, 0.1, m1],
-  ['L', 'range', 'pitch', 'Inclinaison (+ = vers le bas)', -45, 90, 1, (v) => v + '°'],
+  ['L', 'range', 'pitch', 'Inclinaison', -90, 90, 1, (v) => v + '°' + (v === 90 ? ' (vers le sol)' : v === -90 ? ' (vers le plafond)' : v > 0 ? ' (vers le bas)' : v < 0 ? ' (vers le haut)' : ' (horizontal)')],
   ['L', 'range', 'yaw', 'Rotation', -180, 180, 1, (v) => v + '°'],
   ['G', 'h', 'Salle'],
   ['G', 'range', 'roomH', 'Hauteur de la salle (plafond)', 3, 30, 0.5, m1],
