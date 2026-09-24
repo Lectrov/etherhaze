@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Etherhaze</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+<script type="importmap">
+{ "imports": { "three": "/three/build/three.module.js", "three/addons/": "/three/examples/jsm/" } }
+</script>
+</head>
+<body>
+<div id="view"></div>
+
+<aside id="left" class="panel">
+  <header class="brand">
+    <img src="logo.svg" alt="Etherhaze">
+    <p>Émulateur Ether Dream et simulateur laser</p>
+  </header>
+  <div id="tabs"></div>
+  <div id="controls"></div>
+</aside>
+
+<aside id="right" class="panel">
+  <h2 id="seltitle"></h2>
+  <section>
+    <h2>Sortie galvos (vue du laser)</h2>
+    <canvas id="scope" width="560" height="560"></canvas>
+    <div class="legend"><span class="ideal">— envoyé par le logiciel</span><span>— tracé réel simulé</span></div>
+  </section>
+  <section>
+    <h2>DAC</h2>
+    <div id="dac"></div>
+  </section>
+  <section>
+    <h2>Alertes</h2>
+    <ul id="alerts"></ul>
+  </section>
+  <section>
+    <h2>Tous les lasers</h2>
+    <ul id="overview"></ul>
+  </section>
+  <section>
+    <h2>Journal</h2>
+    <ul id="log"></ul>
+  </section>
+</aside>
+
+<div id="waiting">
+  <h2>En attente d'un flux Ether Dream…</h2>
+  <div id="ports"></div>
+  <p><b>TouchDesigner</b> : un <i>Laser Device CHOP</i> par laser, type <i>EtherDream</i>, Network Address et Network Port ci-dessus.</p>
+  <p><b>MadMapper</b> : le DAC apparaît tout seul (laser 1 seulement, la découverte automatique utilise le port 7765).</p>
+  <p>Test sans logiciel : <code>npm run test-sender</code></p>
+</div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

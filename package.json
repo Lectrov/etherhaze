@@ -1,0 +1,18 @@
+{
+  "name": "etherhaze",
+  "version": "1.0.0",
+  "description": "Ether Dream DAC emulator and RGB laser simulator (galvos, colors, haze, smoke) for TouchDesigner / MadMapper",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test-sender": "node tools/test-sender.js"
+  },
+  "keywords": ["laser", "ilda", "ether dream", "etherdream", "dac", "touchdesigner", "madmapper", "simulator", "haze"],
+  "author": "Sebastien Lebon",
+  "license": "MIT",
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "three": "^0.170.0",
+    "ws": "^8.18.0"
+  }
+}

@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 240" width="640" height="240">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0b0620"/>
+      <stop offset="0.55" stop-color="#2a0b45"/>
+      <stop offset="1" stop-color="#4a0f52"/>
+    </linearGradient>
+    <linearGradient id="sun" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffe45c"/>
+      <stop offset="0.45" stop-color="#ff7a3d"/>
+      <stop offset="1" stop-color="#ff2d95"/>
+    </linearGradient>
+    <linearGradient id="chrome" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.42" stop-color="#9fe8ff"/>
+      <stop offset="0.5" stop-color="#1b1446"/>
+      <stop offset="0.56" stop-color="#ff3ea5"/>
+      <stop offset="1" stop-color="#ffd1ec"/>
+    </linearGradient>
+    <linearGradient id="floorFade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff3ea5" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#ff3ea5" stop-opacity="0.15"/>
+    </linearGradient>
+    <linearGradient id="beam" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#00e5ff" stop-opacity="0"/>
+      <stop offset="1" stop-color="#00e5ff" stop-opacity="0.9"/>
+    </linearGradient>
+    <clipPath id="sunClip">
+      <circle cx="320" cy="132" r="78"/>
+    </clipPath>
+    <clipPath id="frame">
+      <rect x="0" y="0" width="640" height="240" rx="18"/>
+    </clipPath>
+    <filter id="glow" x="-20%" y="-40%" width="140%" height="180%">
+      <feGaussianBlur stdDeviation="4" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="softglow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2.2" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <g clip-path="url(#frame)">
+    <rect width="640" height="240" fill="url(#sky)"/>
+
+    <!-- étoiles -->
+    <g fill="#ffffff">
+      <circle cx="42" cy="28" r="1"/><circle cx="118" cy="52" r="0.8"/><circle cx="196" cy="22" r="1.2"/>
+      <circle cx="452" cy="30" r="1"/><circle cx="530" cy="58" r="0.8"/><circle cx="600" cy="24" r="1.2"/>
+      <circle cx="86" cy="96" r="0.7"/><circle cx="566" cy="100" r="0.7"/><circle cx="260" cy="44" r="0.6"/>
+    </g>
+
+    <!-- soleil rayé -->
+    <g clip-path="url(#sunClip)" filter="url(#glow)">
+      <rect x="240" y="54" width="160" height="160" fill="url(#sun)"/>
+      <g fill="#2a0b45">
+        <rect x="240" y="140" width="160" height="3"/>
+        <rect x="240" y="151" width="160" height="4"/>
+        <rect x="240" y="163" width="160" height="5"/>
+        <rect x="240" y="176" width="160" height="6"/>
+        <rect x="240" y="190" width="160" height="7"/>
+      </g>
+    </g>
+
+    <!-- faisceaux laser depuis l'horizon -->
+    <g filter="url(#softglow)" stroke-linecap="round">
+      <line x1="320" y1="176" x2="20" y2="70" stroke="#00e5ff" stroke-width="1.6" opacity="0.85"/>
+      <line x1="320" y1="176" x2="90" y2="40" stroke="#7cff6b" stroke-width="1.4" opacity="0.7"/>
+      <line x1="320" y1="176" x2="620" y2="70" stroke="#00e5ff" stroke-width="1.6" opacity="0.85"/>
+      <line x1="320" y1="176" x2="550" y2="40" stroke="#b36bff" stroke-width="1.4" opacity="0.8"/>
+      <polygon points="320,176 0,120 0,138" fill="#ff3ea5" opacity="0.18"/>
+      <polygon points="320,176 640,120 640,138" fill="#ff3ea5" opacity="0.18"/>
+    </g>
+
+    <!-- sol en grille -->
+    <rect x="0" y="176" width="640" height="64" fill="#12051f"/>
+    <g stroke="url(#floorFade)" stroke-width="1.2" fill="none">
+      <line x1="0" y1="176" x2="640" y2="176" stroke="#ff3ea5" stroke-width="2"/>
+      <line x1="0" y1="180" x2="640" y2="180"/>
+      <line x1="0" y1="186" x2="640" y2="186"/>
+      <line x1="0" y1="194" x2="640" y2="194"/>
+      <line x1="0" y1="205" x2="640" y2="205"/>
+      <line x1="0" y1="219" x2="640" y2="219"/>
+      <line x1="0" y1="237" x2="640" y2="237"/>
+      <line x1="320" y1="176" x2="320" y2="240"/>
+      <line x1="300" y1="176" x2="240" y2="240"/><line x1="340" y1="176" x2="400" y2="240"/>
+      <line x1="280" y1="176" x2="160" y2="240"/><line x1="360" y1="176" x2="480" y2="240"/>
+      <line x1="260" y1="176" x2="80" y2="240"/><line x1="380" y1="176" x2="560" y2="240"/>
+      <line x1="240" y1="176" x2="0" y2="240"/><line x1="400" y1="176" x2="640" y2="240"/>
+      <line x1="210" y1="176" x2="-80" y2="240"/><line x1="430" y1="176" x2="720" y2="240"/>
+      <line x1="180" y1="176" x2="-160" y2="240"/><line x1="460" y1="176" x2="800" y2="240"/>
+    </g>
+
+    <!-- titre chromé -->
+    <g font-family="'Arial Black', 'Segoe UI Black', Impact, sans-serif" font-weight="900" font-style="italic" text-anchor="middle">
+      <text x="322" y="136" font-size="74" fill="#ff3ea5" opacity="0.55" filter="url(#glow)" letter-spacing="2">ETHERHAZE</text>
+      <text x="320" y="132" font-size="74" fill="url(#chrome)" stroke="#1b1446" stroke-width="1.5" letter-spacing="2">ETHERHAZE</text>
+    </g>
+    <text x="320" y="226" font-family="'Segoe Script', 'Brush Script MT', cursive" font-size="22" fill="#00e5ff" text-anchor="middle" filter="url(#softglow)">laser simulator</text>
+  </g>
+</svg>
