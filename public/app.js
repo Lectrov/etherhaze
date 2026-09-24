@@ -240,8 +240,8 @@ const lowPolyCrowd = new THREE.Group();
   }
 }
 
-// Style « silhouettes 2D » : découpes planes fixes, tournées vers le fond de la salle
-// (léger angle aléatoire), liseré de contre-jour calculé sur le bord de la découpe.
+// Style « silhouettes 2D » : billboards tournés vers la caméra (autour de l'axe vertical),
+// liseré de contre-jour calculé sur le bord de la découpe.
 const billboardMat = new THREE.ShaderMaterial({
   uniforms: {
     uMap: { value: null }, uCols: { value: 1 }, uRows: { value: 1 }, uTexel: { value: new THREE.Vector2() },
@@ -249,11 +249,16 @@ const billboardMat = new THREE.ShaderMaterial({
     uRimA: { value: new THREE.Color(0xff3ea5) }, uRimB: { value: new THREE.Color(0x00b8ff) },
   },
   vertexShader: /* glsl */`
-    attribute vec3 iPos; attribute vec2 iSize; attribute float iTile; attribute float iFlip; attribute float iYaw;
+    attribute vec3 iPos; attribute vec2 iSize; attribute float iTile; attribute float iFlip;
     uniform float uCols, uRows;
     varying vec2 vUv; varying float vSide;
     void main(){
-      vec3 right = vec3(cos(iYaw), 0.0, -sin(iYaw));
+      // Billboard cylindrique : face à la caméra, mais toujours vertical.
+      vec3 toCam = cameraPosition - iPos;
+      toCam.y = 0.0;
+      float l = length(toCam);
+      toCam = l > 1e-4 ? toCam / l : vec3(0.0, 0.0, 1.0);
+      vec3 right = vec3(toCam.z, 0.0, -toCam.x);
       vec3 p = iPos + right * position.x * iSize.x + vec3(0.0, position.y * iSize.y, 0.0);
       vec2 uv0 = uv;
       if (iFlip > 0.5) uv0.x = 1.0 - uv0.x;
@@ -287,9 +292,8 @@ const billboardCrowd = (() => {
   geo.setAttribute('position', quad.getAttribute('position'));
   geo.setAttribute('uv', quad.getAttribute('uv'));
   const n = crowdSpots.length;
-  const pos = new Float32Array(n * 3), size = new Float32Array(n * 2), tile = new Float32Array(n), flip = new Float32Array(n), yaw = new Float32Array(n);
+  const pos = new Float32Array(n * 3), size = new Float32Array(n * 2), tile = new Float32Array(n), flip = new Float32Array(n);
   crowdSpots.forEach((it, i) => {
-    yaw[i] = it.ry - Math.PI;              // ±0,4 rad autour de « face au fond de salle »
     pos.set([it.x, 0, it.z], i * 3);
     const h = 1.75 * it.h / 0.93;          // la silhouette occupe 93 % de la hauteur de la case
     size.set([h * 0.5, h], i * 2);
@@ -299,7 +303,6 @@ const billboardCrowd = (() => {
   geo.setAttribute('iSize', new THREE.InstancedBufferAttribute(size, 2));
   geo.setAttribute('iTile', new THREE.InstancedBufferAttribute(tile, 1));
   geo.setAttribute('iFlip', new THREE.InstancedBufferAttribute(flip, 1));
-  geo.setAttribute('iYaw', new THREE.InstancedBufferAttribute(yaw, 1));
   geo.instanceCount = n;
   const mesh = new THREE.Mesh(geo, billboardMat);
   mesh.frustumCulled = false;
