@@ -43,9 +43,12 @@ h3.per-laser::after { content: " · laser sélectionné"; color: var(--dim); tex
 
 .ctl { margin: 7px 0; }
 .ctl label { display: flex; justify-content: space-between; gap: 8px; color: var(--text); }
-.ctl label output { color: var(--dim); font-variant-numeric: tabular-nums; white-space: nowrap; cursor: text; border-bottom: 1px dotted transparent; }
-.ctl label output:hover { color: var(--accent2); border-bottom-color: var(--accent2); }
-.ctl label input.num { width: 76px; background: #0e0b1a; color: var(--accent2); border: 1px solid var(--accent2); border-radius: 3px; padding: 0 4px; font: inherit; text-align: right; }
+.ctl label { align-items: center; }
+.ctl .val { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+.ctl .val output { color: var(--dim); font-size: 11px; white-space: nowrap; max-width: 92px; overflow: hidden; text-overflow: ellipsis; }
+.ctl input.num { width: 54px; background: #0e0b1a; color: var(--text); border: 1px solid var(--line); border-radius: 3px; padding: 1px 4px; font: 12px system-ui, sans-serif; font-variant-numeric: tabular-nums; text-align: right; }
+.ctl input.num:hover { border-color: #4a3f75; }
+.ctl input.num:focus { outline: none; border-color: var(--accent2); color: var(--accent2); }
 .ctl input[type=range] { width: 100%; accent-color: var(--accent); margin: 2px 0 0; }
 .ctl select { width: 100%; background: #0e0b1a; color: var(--text); border: 1px solid var(--line); border-radius: 4px; padding: 4px; margin-top: 3px; }
 .ctl.check label { justify-content: flex-start; cursor: pointer; }

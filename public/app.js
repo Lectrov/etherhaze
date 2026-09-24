@@ -4,6 +4,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { LaserSim } from './sim.js';
 
 // ================================================================ préréglages
@@ -168,14 +169,67 @@ walls.add(wallMesh, wallEdges);
 walls.position.set((ROOM.x0 + ROOM.x1) / 2, roomSize.y / 2, (ROOM.z0 + ROOM.z1) / 2);
 scene.add(walls);
 
+// ---- public : silhouettes low-poly (jambes, torse, tête, bras), certaines mains levées
+function personGeometry(pose) {
+  const parts = [];
+  const add = (geo, x, y, z = 0, rz = 0, sx = 1, sz = 1) => {
+    geo.scale(sx, 1, sz);
+    geo.rotateZ(rz);
+    geo.translate(x, y, z);
+    parts.push(geo);
+  };
+  const limb = (r, len) => new THREE.CapsuleGeometry(r, len, 3, 8);
+  add(limb(0.075, 0.72), -0.1, 0.44, 0, 0.03);                        // jambes
+  add(limb(0.075, 0.72), 0.1, 0.44, 0, -0.03);
+  add(limb(0.17, 0.4), 0, 1.16, 0, 0, 1.05, 0.62);                     // torse
+  add(new THREE.SphereGeometry(0.105, 12, 10), 0, 1.6, 0.01, 0, 0.92); // tête
+  add(limb(0.045, 0.06), 0, 1.47);                                     // cou
+  const armDown = (s) => add(limb(0.05, 0.52), s * 0.25, 1.06, 0, s * 0.1);
+  const armUp = (s, tilt) => add(limb(0.05, 0.56), s * 0.26, 1.74, 0.02, -s * tilt);
+  if (pose === 0) { armDown(-1); armDown(1); }
+  if (pose === 1) { armDown(-1); armUp(1, 0.25); }
+  if (pose === 2) { armUp(-1, 0.35); armUp(1, 0.35); }
+  if (pose === 3) { armDown(-1); armUp(1, 0.05); }                     // bras tendu vers la scène
+  const geo = mergeGeometries(parts);
+  parts.forEach((p) => p.dispose());
+  return geo;
+}
+
 const people = new THREE.Group();
-const personGeo = new THREE.CapsuleGeometry(0.22, 1.3, 4, 8);
-const personMat = new THREE.MeshStandardMaterial({ color: 0x3a3e4d, roughness: 1 });
-for (let i = 0; i < 26; i++) {
-  const p = new THREE.Mesh(personGeo, personMat);
-  const r = Math.sin(i * 12.9898) * 43758.5453;
-  p.position.set(AUD.x0 + 1 + (Math.abs(r) % 1) * (AUD.x1 - AUD.x0 - 2), 0.875, AUD.z0 + 2 + ((i * 0.618) % 1) * (AUD.z1 - AUD.z0 - 4));
-  people.add(p);
+const personMat = new THREE.MeshStandardMaterial({ color: 0x2c2840, roughness: 0.7, metalness: 0.1 });
+// Contre-jour venant de la scène : découpe les silhouettes comme les lumières d'un concert.
+const rimStage = new THREE.DirectionalLight(0xff3ea5, 1.6);
+rimStage.position.set(0, 1.2, -14); // rasante : éclaire les corps, presque pas le sol
+const rimSide = new THREE.DirectionalLight(0x00b8ff, 0.8);
+rimSide.position.set(14, 0.8, -4);
+scene.add(rimStage, rimSide);
+{
+  // Foule plus dense près de la scène, positions et tailles pseudo-aléatoires (stables).
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const spots = [];
+  for (let z = AUD.z0 + 0.8; z < AUD.z1 - 1; z += 0.85 + (z - AUD.z0) * 0.06) {
+    for (let x = AUD.x0 + 0.6; x < AUD.x1 - 0.6; x += 0.8 + rnd() * 0.5) {
+      if (rnd() < 0.18 + (z - AUD.z0) * 0.025) continue; // clairsemé vers le fond
+      spots.push([x + (rnd() - 0.5) * 0.35, z + (rnd() - 0.5) * 0.35]);
+    }
+  }
+  const poses = [0, 0, 0, 1, 1, 2, 3];
+  const byPose = new Map();
+  for (const [x, z] of spots) {
+    const pose = poses[Math.floor(rnd() * poses.length)];
+    if (!byPose.has(pose)) byPose.set(pose, []);
+    byPose.get(pose).push({ x, z, h: 0.9 + rnd() * 0.2, w: 0.92 + rnd() * 0.16, ry: Math.PI + (rnd() - 0.5) * 0.8 });
+  }
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3();
+  for (const [pose, list] of byPose) {
+    const mesh = new THREE.InstancedMesh(personGeometry(pose), personMat, list.length);
+    list.forEach((it, i) => {
+      q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), it.ry);
+      mesh.setMatrixAt(i, m.compose(p.set(it.x, 0, it.z), q, s.set(it.w, it.h, it.w)));
+    });
+    people.add(mesh);
+  }
 }
 scene.add(people);
 
@@ -367,7 +421,7 @@ addEventListener('resize', resize);
 
 // ---- vues rapides
 const VIEWS = {
-  public: { label: 'Public', key: '1', get: () => [[0, 1.7, 15], [0, 3.5, -8]] },
+  public: { label: 'Public', key: '1', get: () => [[0, 2.3, 17.5], [0, 3.2, -8]] },
   stage:  { label: 'Scène', key: '2', get: () => [[0, 3, -11.5], [0, 2.5, 8]] },
   top:    { label: 'Dessus', key: '3', get: () => [[0, G.roomH + 16, 3.5], [0, 0, 3]] },
   side:   { label: 'Côté', key: '4', get: () => [[19, 4.5, 3], [0, 3, 3]] },
@@ -384,7 +438,7 @@ let tween = null;
 function goView(name) {
   const v = VIEWS[name]?.get();
   if (!v) return;
-  tween = { t: 0, p0: camera.position.clone(), t0: orbit.target.clone(), p1: new THREE.Vector3(...v[0]), t1: new THREE.Vector3(...v[1]) };
+  tween = { start: performance.now(), p0: camera.position.clone(), t0: orbit.target.clone(), p1: new THREE.Vector3(...v[0]), t1: new THREE.Vector3(...v[1]) };
 }
 const viewsEl = document.getElementById('views');
 viewsEl.innerHTML = Object.entries(VIEWS).map(([k, v]) => `<button data-v="${k}" title="Touche ${v.key}">${v.label}</button>`).join('') +
@@ -445,6 +499,8 @@ function updateScene() {
   renderer.toneMapping = G.look === 'camera' ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping;
   ambient.intensity = G.roomLight;
   hemi.intensity = G.roomLight * 0.6;
+  rimStage.intensity = G.roomLight * 3.2;
+  rimSide.intensity = G.roomLight * 1.6;
   for (const l of lasers) placeProjector(l);
 }
 
@@ -475,10 +531,26 @@ function buildUI() {
     const lab = document.createElement('label');
     let input, out;
     if (type === 'range') {
+      // Slider + champ de saisie toujours visible (Entrée ou clic ailleurs pour valider,
+      // Échap pour annuler, flèches haut/bas pour ajuster d'un cran).
       input = Object.assign(document.createElement('input'), { type: 'range', min: a, max: b, step });
+      const field = Object.assign(document.createElement('input'), { type: 'text', className: 'num', inputMode: 'decimal', title: `Entre ${a} et ${b}` });
       out = document.createElement('output');
-      lab.append(label, out);
+      const right = document.createElement('span');
+      right.className = 'val';
+      right.append(field, out);
+      lab.append(label, right);
       wrap.append(lab, input);
+      const decimals = (String(step).split('.')[1] || '').length;
+      const show = (v) => {
+        if (document.activeElement !== field) field.value = Number(v).toFixed(decimals).replace('.', ',');
+        // Unité ou description : le texte formaté sans le nombre de tête, sauf s'il
+        // n'est pas la même valeur (pourcentages : 0,08 → « 8 % »).
+        const txt = fmt(v);
+        const lead = txt.match(/^-?[\d.,]+/);
+        const same = lead && Math.abs(parseFloat(lead[0].replace(',', '.')) - v) < 1e-6 + 0.5 * 10 ** -decimals;
+        out.textContent = same ? txt.slice(lead[0].length).trim() : txt;
+      };
       const setValue = (v) => {
         const t = target(scope);
         t[key] = v;
@@ -486,33 +558,33 @@ function buildUI() {
         if (scope === 'L' && ['px', 'py', 'pz', 'pitch', 'yaw'].includes(key)) t.place = 'custom';
         changed(scope, key);
       };
+      const apply = () => {
+        const v = parseFloat(field.value.replace(',', '.'));
+        if (Number.isFinite(v)) {
+          const clamped = Math.min(b, Math.max(a, v));
+          input.value = clamped;
+          setValue(clamped);
+        }
+        field.blur();
+        show(target(scope)[key]);
+      };
       input.addEventListener('input', () => setValue(Number(input.value)));
-      // Clic sur la valeur : saisie au clavier (Entrée pour valider, Échap pour annuler).
-      out.title = 'Cliquer pour taper une valeur';
-      out.addEventListener('click', () => {
-        const field = Object.assign(document.createElement('input'), { type: 'text', className: 'num', value: target(scope)[key] });
-        out.replaceWith(field);
-        field.focus();
-        field.select();
-        let done = false;
-        const finish = (apply) => {
-          if (done) return;
-          done = true;
-          const v = parseFloat(field.value.replace(',', '.'));
-          if (apply && Number.isFinite(v)) {
-            const clamped = Math.min(b, Math.max(a, v));
-            input.value = clamped;
-            setValue(clamped);
-          }
-          field.replaceWith(out);
-          out.textContent = fmt(target(scope)[key]);
-        };
-        field.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter') finish(true);
-          else if (e.key === 'Escape') finish(false);
-        });
-        field.addEventListener('blur', () => finish(true));
+      field.addEventListener('focus', () => field.select());
+      field.addEventListener('change', apply);
+      field.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') apply();
+        else if (e.key === 'Escape') { field.blur(); show(target(scope)[key]); }
+        else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+          e.preventDefault();
+          const cur = parseFloat(field.value.replace(',', '.')) || 0;
+          field.value = String(+(cur + (e.key === 'ArrowUp' ? step : -step) * (e.shiftKey ? 10 : 1)).toFixed(decimals));
+          apply();
+          field.focus();
+        }
       });
+      ui[key] = { scope, input, out, fmt, type, show };
+      controlsEl.append(wrap);
+      continue;
     } else if (type === 'check') {
       input = Object.assign(document.createElement('input'), { type: 'checkbox' });
       lab.append(input, ' ', label);
@@ -551,7 +623,7 @@ function refreshUI() {
     const t = target(c.scope);
     if (c.type === 'check') c.input.checked = !!t[key];
     else c.input.value = t[key];
-    if (c.out) c.out.textContent = c.fmt ? c.fmt(t[key]) : t[key];
+    if (c.show) c.show(t[key]);
   }
   const dis = cfgOf(sel).perfect;
   for (const k of ['kpps', 'damping', 'colorMode', 'threshold', 'gamma', 'modDelay', 'pR', 'pG', 'pB']) ui[k].input.disabled = dis;
@@ -563,7 +635,7 @@ function refreshUI() {
 function changed(scope, key) {
   const c = ui[key];
   const t = target(scope);
-  if (c?.out) c.out.textContent = c.fmt ? c.fmt(t[key]) : t[key];
+  if (c?.show) c.show(t[key]);
   if (ui.profile) ui.profile.input.value = cfgOf(sel).profile;
   if (ui.place) ui.place.input.value = cfgOf(sel).place;
   if (scope === 'L' && lasers[sel]) lasers[sel].sim.updateColor();
@@ -983,11 +1055,11 @@ function frame() {
 
   drawScope(now);
   if (tween) {
-    tween.t = Math.min(1, tween.t + dt / 0.7);
-    const k = tween.t * tween.t * (3 - 2 * tween.t);
+    const t = Math.min(1, (now - tween.start) / 700);
+    const k = t * t * (3 - 2 * t);
     camera.position.lerpVectors(tween.p0, tween.p1, k);
     orbit.target.lerpVectors(tween.t0, tween.t1, k);
-    if (tween.t >= 1) tween = null;
+    if (t >= 1) tween = null;
   }
   orbit.update();
   composer.render();
