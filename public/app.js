@@ -6,6 +6,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { LaserSim } from './sim.js';
+import { makeProceduralAtlas, loadPhotoAtlas } from './crowd.js';
 
 // ================================================================ préréglages
 // Les profils sont des ordres de grandeur réalistes, pas des modèles précis.
@@ -35,7 +36,7 @@ const laserDefaults = (i = 0, n = 1) => ({
 function stripLabel(o) { const { label, ...rest } = o; return rest; }
 
 const G_DEFAULTS = {
-  roomH: 8, walls: true, people: true, audience: true, audH: 3,
+  roomH: 8, walls: true, people: true, crowd: 'billboard', audience: true, audH: 3,
   haze: 0.5, smoke: 0.8, smokeSize: 1.5, smokeHeight: 4, smokeRise: 0.1, windSpeed: 0.3, windDir: 90, swirl: 0.6,
   exposure: 1.4, beamGain: 2.5, spotGain: 2.5, roomLight: 0.5, persist: 40, bloom: 1.2, quality: 'mid',
   beamWidth: 1.6, forward: 0.35, look: 'neon',
@@ -100,7 +101,8 @@ const SCHEMA = [
   ['G', 'h', 'Salle'],
   ['G', 'range', 'roomH', 'Hauteur de la salle (plafond)', 3, 30, 0.5, m1],
   ['G', 'check', 'walls', 'Murs et plafond'],
-  ['G', 'check', 'people', 'Silhouettes (1,75 m)'],
+  ['G', 'check', 'people', 'Public (silhouettes 1,75 m)'],
+  ['G', 'select', 'crowd', 'Style du public', { billboard: 'Silhouettes 2D (photos)', lowpoly: 'Low-poly 3D' }],
   ['G', 'check', 'audience', 'Contrôle zone public'],
   ['G', 'range', 'audH', 'Hauteur mini au-dessus du public', 2, 4, 0.1, m1],
   ['G', 'h', 'Haze et fumée'],
@@ -203,23 +205,29 @@ rimStage.position.set(0, 1.2, -14); // rasante : éclaire les corps, presque pas
 const rimSide = new THREE.DirectionalLight(0x00b8ff, 0.8);
 rimSide.position.set(14, 0.8, -4);
 scene.add(rimStage, rimSide);
-{
-  // Foule plus dense près de la scène, positions et tailles pseudo-aléatoires (stables).
+// Foule plus dense près de la scène, positions et tailles pseudo-aléatoires (stables).
+const crowdSpots = (() => {
   let seed = 7;
   const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-  const spots = [];
+  const list = [];
   for (let z = AUD.z0 + 0.8; z < AUD.z1 - 1; z += 0.85 + (z - AUD.z0) * 0.06) {
     for (let x = AUD.x0 + 0.6; x < AUD.x1 - 0.6; x += 0.8 + rnd() * 0.5) {
       if (rnd() < 0.18 + (z - AUD.z0) * 0.025) continue; // clairsemé vers le fond
-      spots.push([x + (rnd() - 0.5) * 0.35, z + (rnd() - 0.5) * 0.35]);
+      list.push({ x: x + (rnd() - 0.5) * 0.35, z: z + (rnd() - 0.5) * 0.35, h: 0.9 + rnd() * 0.2, w: 0.92 + rnd() * 0.16, ry: Math.PI + (rnd() - 0.5) * 0.8, r1: rnd(), r2: rnd() });
     }
   }
+  return list;
+})();
+
+// Style « low-poly 3D »
+const lowPolyCrowd = new THREE.Group();
+{
   const poses = [0, 0, 0, 1, 1, 2, 3];
   const byPose = new Map();
-  for (const [x, z] of spots) {
-    const pose = poses[Math.floor(rnd() * poses.length)];
+  for (const it of crowdSpots) {
+    const pose = poses[Math.floor(it.r1 * poses.length)];
     if (!byPose.has(pose)) byPose.set(pose, []);
-    byPose.get(pose).push({ x, z, h: 0.9 + rnd() * 0.2, w: 0.92 + rnd() * 0.16, ry: Math.PI + (rnd() - 0.5) * 0.8 });
+    byPose.get(pose).push(it);
   }
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3();
   for (const [pose, list] of byPose) {
@@ -228,9 +236,109 @@ scene.add(rimStage, rimSide);
       q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), it.ry);
       mesh.setMatrixAt(i, m.compose(p.set(it.x, 0, it.z), q, s.set(it.w, it.h, it.w)));
     });
-    people.add(mesh);
+    lowPolyCrowd.add(mesh);
   }
 }
+
+// Style « silhouettes 2D » : billboards tournés vers la caméra (autour de l'axe vertical),
+// liseré de contre-jour calculé sur le bord de la découpe.
+const billboardMat = new THREE.ShaderMaterial({
+  uniforms: {
+    uMap: { value: null }, uCols: { value: 1 }, uRows: { value: 1 }, uTexel: { value: new THREE.Vector2() },
+    uTexGain: { value: 1 }, uRim: { value: 1 },
+    uRimA: { value: new THREE.Color(0xff3ea5) }, uRimB: { value: new THREE.Color(0x00b8ff) },
+  },
+  vertexShader: /* glsl */`
+    attribute vec3 iPos; attribute vec2 iSize; attribute float iTile; attribute float iFlip;
+    uniform float uCols, uRows;
+    varying vec2 vUv; varying float vSide;
+    void main(){
+      vec3 toCam = cameraPosition - iPos;
+      toCam.y = 0.0;
+      float l = length(toCam);
+      toCam = l > 1e-4 ? toCam / l : vec3(0.0, 0.0, 1.0);
+      vec3 right = vec3(toCam.z, 0.0, -toCam.x);
+      vec3 p = iPos + right * position.x * iSize.x + vec3(0.0, position.y * iSize.y, 0.0);
+      vec2 uv0 = uv;
+      if (iFlip > 0.5) uv0.x = 1.0 - uv0.x;
+      float col = mod(iTile, uCols), row = floor(iTile / uCols);
+      vUv = vec2((col + uv0.x) / uCols, 1.0 - (row + 1.0 - uv0.y) / uRows);
+      vSide = uv.x;
+      gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
+    }`,
+  fragmentShader: /* glsl */`
+    uniform sampler2D uMap; uniform vec2 uTexel; uniform float uTexGain, uRim; uniform vec3 uRimA, uRimB;
+    varying vec2 vUv; varying float vSide;
+    void main(){
+      vec4 t = texture2D(uMap, vUv);
+      if (t.a < 0.5) discard;
+      // Contre-jour : fort sur les contours du haut (tête, épaules, bras levés), léger sur les côtés.
+      vec2 d = uTexel * 2.5;
+      float up = texture2D(uMap, vUv + vec2(0.0, d.y)).a;
+      float side = min(texture2D(uMap, vUv + vec2(d.x, 0.0)).a, texture2D(uMap, vUv - vec2(d.x, 0.0)).a);
+      float edge = (1.0 - up) * 0.55 + (1.0 - side) * 0.1;
+      vec3 rim = mix(uRimB, uRimA, smoothstep(0.2, 0.8, vSide)) * edge * uRim;
+      gl_FragColor = vec4(t.rgb * uTexGain + rim, 1.0);
+    }`,
+});
+
+const billboardCrowd = (() => {
+  const geo = new THREE.InstancedBufferGeometry();
+  const quad = new THREE.PlaneGeometry(1, 1);
+  quad.translate(0, 0.5, 0);
+  geo.index = quad.index;
+  geo.setAttribute('position', quad.getAttribute('position'));
+  geo.setAttribute('uv', quad.getAttribute('uv'));
+  const n = crowdSpots.length;
+  const pos = new Float32Array(n * 3), size = new Float32Array(n * 2), tile = new Float32Array(n), flip = new Float32Array(n);
+  crowdSpots.forEach((it, i) => {
+    pos.set([it.x, 0, it.z], i * 3);
+    const h = 1.75 * it.h / 0.93;          // la silhouette occupe 93 % de la hauteur de la case
+    size.set([h * 0.5, h], i * 2);
+    flip[i] = it.r2 > 0.5 ? 1 : 0;
+  });
+  geo.setAttribute('iPos', new THREE.InstancedBufferAttribute(pos, 3));
+  geo.setAttribute('iSize', new THREE.InstancedBufferAttribute(size, 2));
+  geo.setAttribute('iTile', new THREE.InstancedBufferAttribute(tile, 1));
+  geo.setAttribute('iFlip', new THREE.InstancedBufferAttribute(flip, 1));
+  geo.instanceCount = n;
+  const mesh = new THREE.Mesh(geo, billboardMat);
+  mesh.frustumCulled = false;
+  return mesh;
+})();
+
+let crowdAtlas = null;
+function useAtlas(atlas) {
+  crowdAtlas = atlas;
+  const tex = new THREE.CanvasTexture(atlas.canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  billboardMat.uniforms.uMap.value?.dispose();
+  const u = billboardMat.uniforms;
+  u.uMap.value = tex;
+  u.uCols.value = atlas.cols;
+  u.uRows.value = atlas.rows;
+  u.uTexel.value.set(1 / atlas.canvas.width, 1 / atlas.canvas.height);
+  const tiles = billboardCrowd.geometry.getAttribute('iTile');
+  crowdSpots.forEach((it, i) => { tiles.array[i] = Math.floor(it.r1 * atlas.count) % atlas.count; });
+  tiles.needsUpdate = true;
+  applyCrowdLook();
+}
+function applyCrowdLook() {
+  lowPolyCrowd.visible = G.crowd === 'lowpoly';
+  billboardCrowd.visible = G.crowd !== 'lowpoly';
+  // Photos déposées : éclairées par la salle ; silhouettes dessinées : noires, écrans émissifs.
+  billboardMat.uniforms.uTexGain.value = crowdAtlas?.photos ? 0.25 + G.roomLight * 0.6 : 1;
+  billboardMat.uniforms.uRim.value = G.roomLight * 0.5;
+  // Les lumières de contre-jour ne servent qu'aux silhouettes 3D (sinon elles teintent le sol).
+  const k = G.crowd === 'lowpoly' && G.people ? 1 : 0;
+  rimStage.intensity = G.roomLight * 3.2 * k;
+  rimSide.intensity = G.roomLight * 1.6 * k;
+}
+useAtlas(makeProceduralAtlas());
+loadPhotoAtlas().then((a) => { if (a) useAtlas(a); });
+
+people.add(lowPolyCrowd, billboardCrowd);
 scene.add(people);
 
 const audBox = new THREE.LineSegments(
@@ -492,6 +600,7 @@ function updateScene() {
   walls.position.y = G.roomH / 2;
   walls.visible = G.walls;
   people.visible = G.people;
+  applyCrowdLook();
   audBox.visible = G.audience;
   audBox.scale.y = G.audH;
   audBox.position.set((AUD.x0 + AUD.x1) / 2, G.audH / 2, (AUD.z0 + AUD.z1) / 2);
@@ -499,8 +608,6 @@ function updateScene() {
   renderer.toneMapping = G.look === 'camera' ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping;
   ambient.intensity = G.roomLight;
   hemi.intensity = G.roomLight * 0.6;
-  rimStage.intensity = G.roomLight * 3.2;
-  rimSide.intensity = G.roomLight * 1.6;
   for (const l of lasers) placeProjector(l);
 }
 

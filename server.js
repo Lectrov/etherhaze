@@ -140,12 +140,21 @@ function announce() {
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.png': 'image/png',
-  '.svg': 'image/svg+xml',
+  '.svg': 'image/svg+xml', '.webp': 'image/webp',
 };
 
 const server = http.createServer((req, res) => {
   let url = decodeURIComponent(req.url.split('?')[0]);
   let root = path.join(__dirname, 'public');
+  if (url === '/api/crowd') {
+    // Images de public déposées par l'utilisateur (PNG/WebP détourés).
+    fs.readdir(path.join(root, 'crowd'), (err, names) => {
+      const list = err ? [] : names.filter((n) => /\.(png|webp)$/i.test(n)).sort().map((n) => `/crowd/${encodeURIComponent(n)}`);
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' });
+      res.end(JSON.stringify(list));
+    });
+    return;
+  }
   if (url.startsWith('/three/')) { root = path.join(__dirname, 'node_modules', 'three'); url = url.slice(6); }
   if (url === '/') url = '/index.html';
   const file = path.normalize(path.join(root, url));

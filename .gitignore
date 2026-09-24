@@ -6,6 +6,10 @@ Backup/
 *.toe
 stat.txt
 
+# Images de public perso (droits)
+public/crowd/*
+!public/crowd/LISEZMOI.txt
+
 # Divers
 *.log
 .DS_Store

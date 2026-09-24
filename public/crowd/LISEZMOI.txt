@@ -1,0 +1,13 @@
+Silhouettes du public
+=====================
+
+Dépose ici des images PNG ou WebP de personnes détourées (fond transparent),
+en pied, les pieds en bas de l'image. Etherhaze les utilise à la place des
+silhouettes dessinées (style « Silhouettes 2D » dans le visualiseur).
+
+- Jusqu'à 16 images, réparties au hasard dans la foule (parfois en miroir).
+- Format conseillé : environ 256 x 512 pixels ou plus, personne debout.
+- Recharge la page du visualiseur (F5) après avoir ajouté des images.
+
+Ces images ne sont pas envoyées sur GitHub (voir .gitignore) : utilise des
+images dont tu as les droits (tes photos, banques d'images libres CC0...).

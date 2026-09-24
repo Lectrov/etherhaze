@@ -17,6 +17,8 @@ Un show qui marche sur l'écran peut mal passer sur un vrai laser : buffer du DA
 - **Plusieurs lasers** (jusqu'à 8), chacun sur son port, avec ses propres réglages et sa position dans la salle.
 - **Défauts simulés** : vitesse et réglage des galvos, angle de scan, axes inversés, modulation analogique ou TTL, seuil des diodes, gamma, retard de la couleur, puissances R/G/B (le blanc réel).
 - **Rendu 3D** : faisceaux dans la haze et la fumée (densité, taille des nuages, vent, montée, tourbillons), impacts au sol et sur les murs, silhouettes pour l'échelle.
+- **Public** : silhouettes 2D à contre-jour (téléphones allumés, bras levés) ou low-poly 3D. Tu peux déposer tes propres PNG détourés dans `public/crowd/`.
+- **Vues rapides** (public, scène, dessus, côté, derrière le laser) et mode plein écran (touche H).
 - **Vue galvos** : ce que le logiciel envoie comparé à ce que les galvos tracent vraiment.
 - **Alertes en direct** : buffer vide ou débordé, point rate trop élevé, formes déformées, sauts allumés (blanking manquant), scintillement (images/s mesurées), couleurs invisibles, **faisceau dans la zone public**.
 
