@@ -25,7 +25,34 @@ const saveConfig = () => { try { fs.writeFileSync(CONFIG_FILE, JSON.stringify(co
 
 // ---------------------------------------------------------------- journal
 const eventLog = [];
+// Un logiciel qui boucle peut envoyer des milliers de commandes refusées par seconde :
+// chaque type de message est limité à une ligne par seconde (les chiffres ne comptent pas),
+// les répétitions sont résumées ensuite. Sinon le journal ralentirait l'émulateur.
+const recentKeys = new Map(); // clé → { t, suppressed, level, msg, laser }
+
 function logEvent(level, msg, laser = null) {
+  const key = `${laser}|${msg.replace(/\d+/g, '#')}`;
+  const now = Date.now();
+  const r = recentKeys.get(key);
+  if (r && now - r.t < 1000) {
+    r.suppressed++;
+    Object.assign(r, { level, msg });
+    return;
+  }
+  recentKeys.set(key, { t: now, suppressed: 0, level, msg, laser });
+  emit(level, msg, laser);
+}
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, r] of recentKeys) {
+    if (now - r.t < 1000) continue;
+    if (r.suppressed) emit(r.level, `${r.msg} (+${r.suppressed} fois en 1 s)`, r.laser);
+    recentKeys.delete(key);
+  }
+}, 500);
+
+function emit(level, msg, laser) {
   const e = { t: Date.now(), level, msg, laser };
   eventLog.push(e);
   if (eventLog.length > 200) eventLog.shift();
