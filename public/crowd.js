@@ -1,11 +1,10 @@
 // Silhouettes de public en 2D (billboards) : un atlas de silhouettes dessinées par programme,
 // ou les PNG détourés que l'utilisateur dépose dans public/crowd/.
-// Dans l'atlas, le corps est presque noir et les écrans de téléphone sont clairs (émissifs).
+// Dans l'atlas, les silhouettes sont presque noires (téléphones compris, écrans éteints).
 
 export const TILE_W = 256, TILE_H = 512;
 
 const BODY = '#120f1c';
-const SCREEN = '#dff0ff';
 
 // Chaque variante : [bras gauche, bras droit, coiffure, carrure]
 const VARIANTS = [
@@ -100,12 +99,9 @@ function drawPerson(ctx, ox, variant) {
       ctx.lineTo(ex, ey);
       ctx.lineTo(hx, hy);
       ctx.stroke();
-      // téléphone tenu en l'air, écran allumé
+      // téléphone tenu en l'air
       const pw = 0.045 * H, ph = 0.08 * H;
       ctx.fillRect(hx - pw / 2 - 2, hy - ph - 2, pw + 4, ph + 4);
-      ctx.fillStyle = SCREEN;
-      ctx.fillRect(hx - pw / 2, hy - ph, pw, ph);
-      ctx.fillStyle = BODY;
     }
   }
 }
