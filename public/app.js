@@ -412,14 +412,17 @@ const beamShader = {
       float haze = uHaze * (0.85 + 0.3 * noise(vWorld * 0.15 + vec3(uTime * 0.02, 0.0, uTime * 0.015)));
       // Fumée : transportée par le vent et la montée (uOffset = déplacement cumulé en mètres),
       // déformée par des tourbillons (domain warping) qui évoluent avec uTime.
-      vec3 q = (vWorld - uOffset) / uSmokeSize;
-      vec3 warp = vec3(noise(q * 0.5 + vec3(0.0, uTime, 0.0)),
-                       noise(q * 0.5 + vec3(5.2, 1.3, uTime)),
-                       noise(q * 0.5 + vec3(uTime, 9.1, 2.4)));
-      float n = fbm(q + (warp - 0.5) * 2.5 * uSwirl + vec3(0.0, 0.0, uTime * 0.15));
-      float clouds = smoothstep(0.38, 0.78, n);
-      float layer = exp(-max(vWorld.y, 0.0) / uSmokeHeight);
-      float smoke = uSmoke * clouds * layer * 3.0;
+      float smoke = 0.0;
+      if (uSmoke > 0.001) { // branche uniforme : sans fumée, on économise 6 bruits par pixel
+        vec3 q = (vWorld - uOffset) / uSmokeSize;
+        vec3 warp = uSwirl > 0.001 ? vec3(noise(q * 0.5 + vec3(0.0, uTime, 0.0)),
+                                          noise(q * 0.5 + vec3(5.2, 1.3, uTime)),
+                                          noise(q * 0.5 + vec3(uTime, 9.1, 2.4))) : vec3(0.5);
+        float n = fbm(q + (warp - 0.5) * 2.5 * uSwirl + vec3(0.0, 0.0, uTime * 0.15));
+        float clouds = smoothstep(0.38, 0.78, n);
+        float layer = exp(-max(vWorld.y, 0.0) / uSmokeHeight);
+        smoke = uSmoke * clouds * layer * 3.0;
+      }
       float fade = exp(-0.03 * vAlong);
       gl_FragColor = vec4(vColor * (haze + smoke) * fade * uGain * profile * phase, 1.0);
     }`,
@@ -935,16 +938,25 @@ function drawScope(now) {
   const { sx, sy, sr, sg, sb } = sim;
   const { first, last } = sim.sampleRange(tStart, tEnd);
   const R = sim.RING - 1;
-  let key = '', lx = null, ly = null, m = 0;
+  // Couleur quantifiée sur 16 niveaux par canal ; le style n'est changé (et la chaîne
+  // construite) que quand la couleur change, pas à chaque point.
+  let key = -1, lx = null, ly = null, m = 0;
+  const limit = QUALITY[G.quality];
   sc.beginPath();
-  for (let s = last; s >= first && m < QUALITY[G.quality]; s -= 2, m++) {
+  for (let s = last; s >= first && m < limit; s -= 2, m++) {
     const j = s & R;
     const mx = Math.max(sr[j], sg[j], sb[j]);
     if (mx < 0.01) { lx = null; continue; }
     const x = px(sx[j]), y = py(sy[j]);
-    const q = (v) => Math.min(255, Math.round((v / Math.max(1, mx)) * 15) * 17);
-    const nk = `rgb(${q(sr[j])},${q(sg[j])},${q(sb[j])})`;
-    if (nk !== key) { sc.stroke(); sc.beginPath(); sc.strokeStyle = nk; key = nk; if (lx !== null) sc.moveTo(lx, ly); }
+    const unit = Math.max(1, mx) / 15;
+    const qr = Math.min(15, Math.round(sr[j] / unit)), qg = Math.min(15, Math.round(sg[j] / unit)), qb = Math.min(15, Math.round(sb[j] / unit));
+    const nk = (qr << 8) | (qg << 4) | qb;
+    if (nk !== key) {
+      sc.stroke(); sc.beginPath();
+      sc.strokeStyle = `rgb(${qr * 17},${qg * 17},${qb * 17})`;
+      key = nk;
+      if (lx !== null) sc.moveTo(lx, ly);
+    }
     if (lx === null) sc.moveTo(x, y); else sc.lineTo(x, y);
     lx = x; ly = y;
   }
@@ -1131,6 +1143,8 @@ setInterval(tickAlerts, 700);
 
 const clock = new THREE.Clock();
 let smokeT = 0;
+// Temps moyens (ms) par étape, consultables dans la console : etherhazePerf
+const perf = (window.etherhazePerf = { beams: 0, scope: 0, render: 0 });
 function frame() {
   requestAnimationFrame(frame);
   const now = performance.now();
@@ -1157,12 +1171,16 @@ function frame() {
   const active = lasers.filter((l) => l.cfg.visible && l.sim.streaming).length || 1;
   const budget = Math.max(3000, QUALITY[G.quality] / active);
   let aud = false;
+  const t0 = performance.now();
   for (const l of lasers) aud = buildBeams(l, now, budget) || aud;
+  perf.beams = perf.beams * 0.95 + (performance.now() - t0) * 0.05;
   audienceFlag = aud ? 1 : Math.max(0, audienceFlag - 0.05);
   audBox.material.opacity = 0.12 + audienceFlag * 0.4;
   audBox.material.color.setHex(audienceFlag > 0.5 ? 0xa02838 : 0x5a1c24);
 
+  const t1 = performance.now();
   drawScope(now);
+  perf.scope = perf.scope * 0.95 + (performance.now() - t1) * 0.05;
   if (tween) {
     const t = Math.min(1, (now - tween.start) / 700);
     const k = t * t * (3 - 2 * t);
@@ -1171,7 +1189,9 @@ function frame() {
     if (t >= 1) tween = null;
   }
   orbit.update();
+  const t2 = performance.now();
   composer.render();
+  perf.render = perf.render * 0.95 + (performance.now() - t2) * 0.05;
   frameMs = frameMs * 0.95 + (performance.now() - now) * 0.05;
 }
 frame();

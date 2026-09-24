@@ -31,6 +31,7 @@ const eventLog = [];
 const recentKeys = new Map(); // clé → { t, suppressed, level, msg, laser }
 
 function logEvent(level, msg, laser = null) {
+  if (laser === null) return emit(level, msg, laser); // messages du serveur : rares, jamais regroupés
   const key = `${laser}|${msg.replace(/\d+/g, '#')}`;
   const now = Date.now();
   const r = recentKeys.get(key);
@@ -67,7 +68,15 @@ const loop = { last: performance.now(), bigLag: 0, bigLagAt: 0 };
 // ---------------------------------------------------------------- lasers
 const dacs = [];
 
-async function setLaserCount(n) {
+// Les changements du nombre de lasers passent dans une file : deux clics rapides
+// ne doivent pas créer deux fois le même laser sur le même port.
+let laserQueue = Promise.resolve();
+function setLaserCount(n) {
+  laserQueue = laserQueue.then(() => applyLaserCount(n)).catch(() => {});
+  return laserQueue;
+}
+
+async function applyLaserCount(n) {
   n = Math.max(1, Math.min(MAX_LASERS, Math.round(n) || 1));
   while (dacs.length < n) {
     const i = dacs.length;
@@ -158,7 +167,7 @@ const server = http.createServer((req, res) => {
   if (url.startsWith('/three/')) { root = path.join(__dirname, 'node_modules', 'three'); url = url.slice(6); }
   if (url === '/') url = '/index.html';
   const file = path.normalize(path.join(root, url));
-  if (!file.startsWith(root)) { res.writeHead(403); return res.end(); }
+  if (!file.startsWith(root + path.sep)) { res.writeHead(403); return res.end(); }
   fs.readFile(file, (err, data) => {
     if (err) { res.writeHead(404); return res.end('404'); }
     res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
