@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test-sender": "node tools/test-sender.js"
+    "test-sender": "node tools/test-sender.js",
+    "dmx-test": "node tools/dmx-test.js"
   },
   "keywords": ["laser", "ilda", "ether dream", "etherdream", "dac", "touchdesigner", "madmapper", "simulator", "haze"],
   "author": "Sebastien Lebon",

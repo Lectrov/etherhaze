@@ -11,6 +11,7 @@ const dgram = require('dgram');
 const os = require('os');
 const { WebSocketServer } = require('ws');
 const { Dac, CAPACITY, MAX_RATE } = require('./lib/dac');
+const { DmxInput } = require('./lib/dmx');
 
 const HTTP_PORT = Number(process.env.PORT) || 8080;
 const BASE_PORT = Number(process.env.DAC_PORT) || 7765;
@@ -65,6 +66,9 @@ function emit(level, msg, laser) {
 // Surveillance de la boucle : distingue un logiciel trop lent d'un PC surchargé.
 const loop = { last: performance.now(), bigLag: 0, bigLagAt: 0 };
 
+// ---------------------------------------------------------------- DMX (projecteurs)
+const dmx = new DmxInput({ log: (level, msg) => logEvent(level, msg) });
+
 // ---------------------------------------------------------------- lasers
 const dacs = [];
 
@@ -77,7 +81,7 @@ function setLaserCount(n) {
 }
 
 async function applyLaserCount(n) {
-  n = Math.max(1, Math.min(MAX_LASERS, Math.round(n) || 1));
+  n = Math.max(0, Math.min(MAX_LASERS, Math.round(n) || 0));
   while (dacs.length < n) {
     const i = dacs.length;
     const d = new Dac(i, BASE_PORT + i, { log: logEvent, loop });
@@ -155,6 +159,7 @@ const MIME = {
 const server = http.createServer((req, res) => {
   let url = decodeURIComponent(req.url.split('?')[0]);
   let root = path.join(__dirname, 'public');
+  if (url === '/api/scenes' || url.startsWith('/api/scenes/')) return handleScenes(req, res, url);
   if (url === '/api/crowd') {
     // Images de public déposées par l'utilisateur (PNG/WebP détourés).
     fs.readdir(path.join(root, 'crowd'), (err, names) => {
@@ -174,6 +179,46 @@ const server = http.createServer((req, res) => {
     res.end(data);
   });
 });
+
+// ---------------------------------------------------------------- scènes (fichiers JSON dans scenes/)
+const SCENES_DIR = path.join(__dirname, 'scenes');
+const sceneFile = (name) => {
+  const safe = name.normalize('NFC').replace(/[^\p{L}\p{N} _-]/gu, '').trim().slice(0, 60);
+  return safe ? path.join(SCENES_DIR, `${safe}.json`) : null;
+};
+
+function handleScenes(req, res, url) {
+  const json = (code, obj) => {
+    res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' });
+    res.end(JSON.stringify(obj));
+  };
+  if (url === '/api/scenes') {
+    fs.readdir(SCENES_DIR, (err, names) => json(200, err ? [] : names.filter((n) => n.endsWith('.json')).map((n) => n.slice(0, -5)).sort()));
+    return;
+  }
+  const file = sceneFile(url.slice('/api/scenes/'.length));
+  if (!file) return json(400, { error: 'nom invalide' });
+  if (req.method === 'GET') {
+    fs.readFile(file, 'utf8', (err, data) => {
+      if (err) return json(404, { error: 'scène introuvable' });
+      try { json(200, JSON.parse(data)); } catch { json(500, { error: 'fichier de scène illisible' }); }
+    });
+  } else if (req.method === 'POST') {
+    let body = '';
+    req.on('data', (c) => { body += c; if (body.length > 2e6) req.destroy(); });
+    req.on('end', () => {
+      try {
+        const scene = JSON.parse(body);
+        fs.mkdirSync(SCENES_DIR, { recursive: true });
+        fs.writeFileSync(file, JSON.stringify(scene, null, 2));
+        logEvent('ok', `Scène enregistrée : ${path.basename(file, '.json')}`);
+        json(200, { ok: true, name: path.basename(file, '.json') });
+      } catch (e) { json(400, { error: e.message }); }
+    });
+  } else if (req.method === 'DELETE') {
+    fs.unlink(file, (err) => json(err ? 404 : 200, { ok: !err }));
+  } else json(405, { error: 'méthode non gérée' });
+}
 
 const wss = new WebSocketServer({ server, path: '/ws' });
 
@@ -204,10 +249,18 @@ setInterval(() => {
   }
 }, 4);
 
+// DMX : au plus 50 mises à jour par seconde et par univers.
+setInterval(() => {
+  for (const b of dmx.takeUpdates()) {
+    for (const c of wss.clients) if (c.readyState === 1 && c.bufferedAmount < 4e6) c.send(b);
+  }
+}, 20);
+
 setInterval(() => {
   broadcastJSON({
     type: 'status',
     lasers: dacs.map((d) => d.status()),
+    dmx: dmx.status(),
     maxLasers: MAX_LASERS,
     interfaces: ifaces.map((a) => ({ name: a.name, address: a.address, ok: a.ok, error: a.error })),
   });
@@ -221,12 +274,14 @@ try { os.setPriority(os.constants.priority.PRIORITY_HIGH); } catch {
 // ---------------------------------------------------------------- démarrage
 (async () => {
   setupInterfaces();
-  await setLaserCount(config.lasers);
-  if (!dacs.length) {
+  const wanted = config.lasers;
+  await setLaserCount(wanted);
+  if (wanted > 0 && !dacs.length) {
     console.error(`\n[ERREUR] Impossible d'ouvrir le port TCP ${BASE_PORT}. Un autre émulateur tourne peut-être déjà.`);
     process.exit(1);
   }
   setInterval(announce, 1000);
+  dmx.start();
 
   server.on('error', (e) => {
     console.error(`\n[ERREUR] Port web ${HTTP_PORT} : ${e.message}`);
@@ -242,6 +297,7 @@ try { os.setPriority(os.constants.priority.PRIORITY_HIGH); } catch {
     console.log('  Cartes réseau :');
     for (const a of ifaces) console.log(`    ${a.address.padEnd(16)} (${a.name})`);
     console.log('  Nombre de lasers réglable dans le visualiseur.');
+    console.log('  DMX         : Art-Net (UDP 6454) et sACN (UDP 5568)');
     console.log('==============================================');
     if (!process.argv.includes('--no-open') && process.platform === 'win32') {
       require('child_process').exec(`start "" "${url}"`);

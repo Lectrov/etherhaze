@@ -7,6 +7,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { LaserSim } from './sim.js';
 import { makeProceduralAtlas, loadPhotoAtlas } from './crowd.js';
+import { FIXTURE_PROFILES, fixtureDefaults, Fixture } from './fixtures.js';
 
 // ================================================================ préréglages
 // Les profils sont des ordres de grandeur réalistes, pas des modèles précis.
@@ -39,20 +40,21 @@ const G_DEFAULTS = {
   roomH: 8, walls: true, people: true, crowd: 'billboard', audience: true, audH: 3,
   haze: 0.5, smoke: 0.8, smokeSize: 1.5, smokeHeight: 4, smokeRise: 0.1, windSpeed: 0.3, windDir: 90, swirl: 0.6,
   exposure: 1.4, beamGain: 2.5, spotGain: 2.5, roomLight: 0.5, persist: 40, bloom: 1.2, quality: 'mid',
-  beamWidth: 1.6, forward: 0.35, look: 'neon',
+  beamWidth: 1.6, forward: 0.35, look: 'neon', fixtureGain: 1,
 };
 
 // ================================================================ état sauvegardé
 let G = { ...G_DEFAULTS };
 let L = [laserDefaults()];
-let sel = 0;
+let F = [];          // projecteurs DMX
+let sel = 0;         // laser sélectionné
+let selF = 0;        // projecteur sélectionné
+let userViews = [];  // vues caméra enregistrées : { name, pos: [x,y,z], target: [x,y,z] }
 (function load() {
   try {
     const saved = JSON.parse(localStorage.getItem('etherhaze') || 'null');
     if (saved) {
-      Object.assign(G, saved.G);
-      if (Array.isArray(saved.L) && saved.L.length) L = saved.L.map((l, i) => ({ ...laserDefaults(i), ...l }));
-      sel = saved.sel || 0;
+      applyState(saved);
       return;
     }
     // Reprise des réglages de l'ancienne version (laserSim, un seul laser).
@@ -64,8 +66,19 @@ let sel = 0;
     }
   } catch {}
 })();
-const save = () => { try { localStorage.setItem('etherhaze', JSON.stringify({ G, L, sel })); } catch {} };
+/** Remplace l'état par celui d'une sauvegarde ou d'une scène (les champs absents gardent leur défaut). */
+function applyState(s) {
+  G = { ...G_DEFAULTS, ...(s.G || {}) };
+  L = Array.isArray(s.L) && s.L.length ? s.L.map((l, i) => ({ ...laserDefaults(i), ...l })) : [laserDefaults()];
+  F = Array.isArray(s.F) ? s.F.map((f, i) => ({ ...fixtureDefaults(i, G.roomH), ...f })) : [];
+  userViews = Array.isArray(s.views) ? s.views : [];
+  sel = s.sel || 0;
+  selF = s.selF || 0;
+}
+const snapshot = () => ({ G, L, F, views: userViews, sel, selF });
+const save = () => { try { localStorage.setItem('etherhaze', JSON.stringify(snapshot())); } catch {} };
 const cfgOf = (i) => { while (L.length <= i) L.push(laserDefaults(L.length, i + 1)); return L[i]; };
+const NO_LASER = laserDefaults(); // cible factice quand la scène n'a aucun laser
 
 // ================================================================ schéma de l'interface
 // [portée, type, clé, libellé, ...] — portée 'L' = laser sélectionné, 'G' = scène globale.
@@ -118,6 +131,7 @@ const SCHEMA = [
   ['G', 'range', 'exposure', 'Luminosité générale', 0.2, 4, 0.05, (v) => v.toFixed(2)],
   ['G', 'range', 'beamGain', 'Faisceaux dans la fumée', 0.1, 8, 0.1, (v) => v.toFixed(1)],
   ['G', 'range', 'spotGain', 'Impacts sur les surfaces', 0.1, 8, 0.1, (v) => v.toFixed(1)],
+  ['G', 'range', 'fixtureGain', 'Projecteurs DMX dans la fumée', 0, 5, 0.05, (v) => v.toFixed(2)],
   ['G', 'range', 'roomLight', 'Éclairage de la salle', 0, 2, 0.05, (v) => v.toFixed(2)],
   ['G', 'range', 'beamWidth', 'Épaisseur des faisceaux', 1, 5, 0.1, (v) => v.toFixed(1) + ' px'],
   ['G', 'range', 'forward', 'Diffusion vers l\'avant', 0, 0.8, 0.01, (v) => (v === 0 ? 'uniforme' : v.toFixed(2))],
@@ -125,6 +139,19 @@ const SCHEMA = [
   ['G', 'select', 'look', 'Style de rendu', { neon: 'Néon (couleurs pures)', camera: 'Caméra (cœurs blancs)' }],
   ['G', 'range', 'persist', 'Persistance rétinienne', 10, 120, 1, (v) => v + ' ms'],
   ['G', 'select', 'quality', 'Qualité du rendu', { low: 'Légère (PC modeste)', mid: 'Normale', high: 'Haute' }],
+  // Projecteur DMX sélectionné
+  ['F', 'check', 'visible', 'Affiché dans la scène'],
+  ['F', 'select', 'profile', 'Type', opt(FIXTURE_PROFILES)],
+  ['F', 'range', 'universe', 'Univers DMX', 0, 63, 1, (v) => String(v)],
+  ['F', 'range', 'address', 'Adresse DMX', 1, 512, 1, (v) => String(v)],
+  ['F', 'channels'],
+  ['F', 'select', 'mount', 'Montage (lyres)', { hang: 'Suspendu (tête en bas)', floor: 'Posé au sol' }],
+  ['F', 'range', 'px', 'Position gauche / droite', -9.5, 9.5, 0.1, m1],
+  ['F', 'range', 'py', 'Hauteur', 0.1, 29.9, 0.1, m1],
+  ['F', 'range', 'pz', 'Profondeur (scène → fond)', -11.5, 17.5, 0.1, m1],
+  ['F', 'range', 'pitch', 'Inclinaison (PAR)', -90, 90, 1, (v) => v + '°'],
+  ['F', 'range', 'yaw', 'Rotation', -180, 180, 1, (v) => v + '°'],
+  ['F', 'range', 'power', 'Puissance', 0, 3, 0.05, (v) => '×' + v.toFixed(2)],
 ];
 
 // ================================================================ scène 3D
@@ -364,7 +391,7 @@ const beamUniforms = {
   uSmoke: { value: 0.8 }, uSmokeSize: { value: 1.5 }, uSmokeHeight: { value: 4 },
   uOffset: { value: new THREE.Vector3() }, uSwirl: { value: 0.6 },
   uPixAngle: { value: 0.001 }, uMinPx: { value: 1.6 }, uForward: { value: 0.35 },
-  uBeamBase: { value: 0.004 }, uBeamDiv: { value: 0.0015 },
+  uBeamBase: { value: 0.004 }, uBeamDiv: { value: 0.0015 }, uSpotGain: { value: 1 },
 };
 
 // Chaque faisceau est un ruban tourné vers la caméra (instancié) : largeur physique
@@ -532,13 +559,16 @@ function resize() {
 }
 addEventListener('resize', resize);
 
-// ---- vues rapides
+// ---- vues rapides (touches 1 à 9, 0) + vues enregistrées par l'utilisateur
 const VIEWS = {
-  public: { label: 'Public', key: '1', get: () => [[0, 2.3, 17.5], [0, 3.2, -8]] },
-  stage:  { label: 'Scène', key: '2', get: () => [[0, 3, -11.5], [0, 2.5, 8]] },
-  top:    { label: 'Dessus', key: '3', get: () => [[0, G.roomH + 16, 3.5], [0, 0, 3]] },
-  side:   { label: 'Côté', key: '4', get: () => [[19, 4.5, 3], [0, 3, 3]] },
-  laser:  { label: 'Derrière le laser', key: '5', get: () => {
+  public: { label: 'Fond de salle', key: '1', get: () => [[0, 2.3, 17.5], [0, 3.2, -8]] },
+  crowd:  { label: 'Dans la foule', key: '2', get: () => [[0.4, 1.65, 6], [0, 3.2, -10]] },
+  front:  { label: 'Premier rang', key: '3', get: () => [[0, 1.65, -3.2], [0, 3.8, -11]] },
+  foh:    { label: 'Régie', key: '4', get: () => [[0, 3.2, 13], [0, 2.5, -10]] },
+  stage:  { label: 'Scène', key: '5', get: () => [[0, 3, -11.5], [0, 2.5, 8]] },
+  top:    { label: 'Dessus', key: '6', get: () => [[0, G.roomH + 16, 3.5], [0, 0, 3]] },
+  side:   { label: 'Côté', key: '7', get: () => [[19, 4.5, 3], [0, 3, 3]] },
+  laser:  { label: 'Derrière le laser', key: '8', get: () => {
     const l = lasers[sel];
     if (!l) return null;
     const e = l.obj.projector.matrixWorld.elements;
@@ -553,17 +583,43 @@ function goView(name) {
   if (!v) return;
   tween = { start: performance.now(), p0: camera.position.clone(), t0: orbit.target.clone(), p1: new THREE.Vector3(...v[0]), t1: new THREE.Vector3(...v[1]) };
 }
+function goUserView(i) {
+  const v = userViews[i];
+  if (v) tween = { start: performance.now(), p0: camera.position.clone(), t0: orbit.target.clone(), p1: new THREE.Vector3(...v.pos), t1: new THREE.Vector3(...v.target) };
+}
 const viewsEl = document.getElementById('views');
-viewsEl.innerHTML = Object.entries(VIEWS).map(([k, v]) => `<button data-v="${k}" title="Touche ${v.key}">${v.label}</button>`).join('') +
-  '<button data-v="hide" title="Touche H">Masquer les panneaux</button>';
+function renderViews() {
+  const bare = document.body.classList.contains('bare');
+  viewsEl.innerHTML = Object.entries(VIEWS).map(([k, v]) => `<button data-v="${k}" title="Touche ${v.key}">${v.label}</button>`).join('') +
+    (userViews.length ? '<span class="sep"></span>' : '') +
+    userViews.map((v, i) => `<button class="user" data-u="${i}" title="Vue enregistrée — clic droit pour supprimer">${v.name}</button>`).join('') +
+    '<button data-v="save" title="Enregistrer la vue actuelle">＋ Vue</button>' +
+    `<button data-v="hide" title="Touche H">${bare ? 'Afficher les panneaux' : 'Masquer les panneaux'}</button>`;
+}
 viewsEl.addEventListener('click', (e) => {
   const b = e.target.closest('button');
   if (!b) return;
-  if (b.dataset.v === 'hide') togglePanels(); else goView(b.dataset.v);
+  if (b.dataset.u !== undefined) return goUserView(Number(b.dataset.u));
+  if (b.dataset.v === 'hide') return togglePanels();
+  if (b.dataset.v === 'save') {
+    const name = prompt('Nom de la vue :', `Vue ${userViews.length + 1}`);
+    if (!name) return;
+    userViews.push({ name: name.slice(0, 24), pos: camera.position.toArray().map((v) => +v.toFixed(2)), target: orbit.target.toArray().map((v) => +v.toFixed(2)) });
+    save();
+    return renderViews();
+  }
+  goView(b.dataset.v);
+});
+viewsEl.addEventListener('contextmenu', (e) => {
+  const b = e.target.closest('button.user');
+  if (!b) return;
+  e.preventDefault();
+  const i = Number(b.dataset.u);
+  if (confirm(`Supprimer la vue « ${userViews[i].name} » ?`)) { userViews.splice(i, 1); save(); renderViews(); }
 });
 function togglePanels() {
   document.body.classList.toggle('bare');
-  viewsEl.querySelector('[data-v="hide"]').textContent = document.body.classList.contains('bare') ? 'Afficher les panneaux' : 'Masquer les panneaux';
+  renderViews();
 }
 addEventListener('keydown', (e) => {
   if (e.target.closest('input, select, textarea') || e.ctrlKey || e.altKey || e.metaKey) return;
@@ -574,7 +630,7 @@ addEventListener('keydown', (e) => {
 
 // ================================================================ lasers
 const lasers = [];   // { index, cfg, sim, obj, status, hist, recentT, level }
-let serverCount = 0;
+let serverCount = -1; // nombre de lasers annoncé par le serveur (inconnu avant le premier statut)
 
 function ensureLasers(n) {
   while (lasers.length < n) {
@@ -587,7 +643,7 @@ function ensureLasers(n) {
     placeProjector(lasers[i]);
   }
   while (lasers.length > n) disposeLaserObjects(lasers.pop().obj);
-  if (sel >= lasers.length) sel = lasers.length - 1;
+  if (sel >= lasers.length) sel = Math.max(0, lasers.length - 1);
 }
 
 function placeProjector(l) {
@@ -617,14 +673,18 @@ function updateScene() {
 }
 
 // ================================================================ interface
+// Les réglages sont indexés par « portée.clé » : lasers et projecteurs ont des clés communes (px, py...).
 const ui = {};
-const controlsEl = document.getElementById('controls');
+const containers = { L: document.getElementById('lcontrols'), G: document.getElementById('gcontrols'), F: document.getElementById('fcontrols') };
 const tabsEl = document.getElementById('tabs');
-let swatchesEl;
-const target = (scope) => (scope === 'L' ? cfgOf(sel) : G);
+const ftabsEl = document.getElementById('ftabs');
+let swatchesEl, channelsEl;
+const cfgF = (i) => F[i];
+const target = (scope) => (scope === 'L' ? (lasers.length ? cfgOf(sel) : NO_LASER) : scope === 'F' ? (cfgF(selF) || {}) : G);
 
 function buildUI() {
   for (const [scope, type, key, label, a, b, step, fmt] of SCHEMA) {
+    const controlsEl = containers[scope];
     if (type === 'h') {
       const h = document.createElement('h3');
       h.textContent = key;
@@ -638,6 +698,13 @@ function buildUI() {
       controlsEl.append(swatchesEl);
       continue;
     }
+    if (type === 'channels') {
+      channelsEl = document.createElement('div');
+      channelsEl.className = 'channels';
+      controlsEl.append(channelsEl);
+      continue;
+    }
+    const id = `${scope}.${key}`;
     const wrap = document.createElement('div');
     wrap.className = 'ctl' + (type === 'check' ? ' check' : '');
     const lab = document.createElement('label');
@@ -694,7 +761,7 @@ function buildUI() {
           field.focus();
         }
       });
-      ui[key] = { scope, input, out, fmt, type, show };
+      ui[id] = { scope, key, input, out, fmt, type, show };
       controlsEl.append(wrap);
       continue;
     } else if (type === 'check') {
@@ -716,8 +783,8 @@ function buildUI() {
       input.addEventListener('change', () => {
         const t = target(scope);
         t[key] = input.value;
-        if (key === 'profile' && PROFILES[input.value]) Object.assign(t, stripLabel(PROFILES[input.value]));
-        if (key === 'place' && PLACES[input.value]) {
+        if (scope === 'L' && key === 'profile' && PROFILES[input.value]) Object.assign(t, stripLabel(PROFILES[input.value]));
+        if (scope === 'L' && key === 'place' && PLACES[input.value]) {
           Object.assign(t, stripLabel(PLACES[input.value]));
           t.px = spread(sel, lasers.length);
         }
@@ -725,35 +792,45 @@ function buildUI() {
         refreshUI();
       });
     }
-    ui[key] = { scope, input, out, fmt, type };
+    ui[id] = { scope, key, input, out, fmt, type };
     controlsEl.append(wrap);
   }
 }
 
 function refreshUI() {
-  for (const [key, c] of Object.entries(ui)) {
+  for (const c of Object.values(ui)) {
     const t = target(c.scope);
-    if (c.type === 'check') c.input.checked = !!t[key];
-    else c.input.value = t[key];
-    if (c.show) c.show(t[key]);
+    if (!(c.key in t)) continue;
+    if (c.type === 'check') c.input.checked = !!t[c.key];
+    else c.input.value = t[c.key];
+    if (c.show) c.show(t[c.key]);
   }
-  const dis = cfgOf(sel).perfect;
-  for (const k of ['kpps', 'damping', 'colorMode', 'threshold', 'gamma', 'modDelay', 'pR', 'pG', 'pB']) ui[k].input.disabled = dis;
+  const dis = target('L').perfect;
+  for (const k of ['kpps', 'damping', 'colorMode', 'threshold', 'gamma', 'modDelay', 'pR', 'pG', 'pB']) ui[`L.${k}`].input.disabled = dis;
+  // Montage : lyres seulement ; inclinaison : PAR seulement.
+  const moving = FIXTURE_PROFILES[cfgF(selF)?.profile]?.moving;
+  ui['F.mount'].input.closest('.ctl').hidden = !moving;
+  ui['F.pitch'].input.closest('.ctl').hidden = !!moving;
+  containers.L.hidden = !lasers.length;
+  containers.F.hidden = !F.length;
   document.documentElement.style.setProperty('--tag', TAG_COLORS[sel % TAG_COLORS.length]);
   drawSwatches();
   renderTabs();
+  renderFixtureTabs();
 }
 
 function changed(scope, key) {
-  const c = ui[key];
+  const c = ui[`${scope}.${key}`];
   const t = target(scope);
   if (c?.show) c.show(t[key]);
-  if (ui.profile) ui.profile.input.value = cfgOf(sel).profile;
-  if (ui.place) ui.place.input.value = cfgOf(sel).place;
-  if (scope === 'L' && lasers[sel]) lasers[sel].sim.updateColor();
+  if (scope === 'L') {
+    ui['L.profile'].input.value = t.profile;
+    ui['L.place'].input.value = t.place;
+    if (lasers[sel]) lasers[sel].sim.updateColor();
+  }
   if (key === 'quality') resize();
   updateScene();
-  if (key === 'roomH' && ui.py) refreshUI();
+  if (key === 'roomH' || (scope === 'F' && key === 'profile')) refreshUI();
   drawSwatches();
   save();
 }
@@ -777,7 +854,76 @@ function renderTabs() {
     `<button class="tab ${i === sel ? 'active' : ''} lvl-${l.level}" data-i="${i}" style="--c:${TAG_COLORS[i % TAG_COLORS.length]}">` +
     `<i></i>L${i + 1}<small>${l.status?.port ?? ''}</small></button>`).join('') +
     `<button class="tab add" data-act="add" ${lasers.length >= max ? 'disabled' : ''} title="Ajouter un laser">+</button>` +
-    `<button class="tab add" data-act="remove" ${lasers.length <= 1 ? 'disabled' : ''} title="Retirer le dernier laser">−</button>`;
+    `<button class="tab add" data-act="remove" ${lasers.length < 1 ? 'disabled' : ''} title="Retirer le dernier laser">−</button>` +
+    (lasers.length ? '' : '<span class="empty">Aucun laser dans la scène</span>');
+}
+
+// ---- projecteurs DMX
+const fixtures = [];   // instances Fixture, dans le même ordre que F
+const dmxData = new Map(); // "artnet:0" / "sacn:1" → Uint8Array(512)
+const dmxUniverse = (u) => dmxData.get(`artnet:${u}`) || dmxData.get(`sacn:${u}`);
+const fixtureCtx = () => ({ scene, beamUniforms, noise: NOISE });
+
+function ensureFixtures() {
+  while (fixtures.length < F.length) fixtures.push(new Fixture(F[fixtures.length], fixtureCtx()));
+  while (fixtures.length > F.length) fixtures.pop().dispose(scene);
+  fixtures.forEach((fx, i) => { fx.cfg = F[i]; });
+  if (selF >= F.length) selF = Math.max(0, F.length - 1);
+}
+
+function nextFreeAddress(universe) {
+  let end = 1;
+  for (const f of F) if (f.universe === universe) end = Math.max(end, f.address + FIXTURE_PROFILES[f.profile].channels.length);
+  return end;
+}
+
+function renderFixtureTabs() {
+  ftabsEl.innerHTML = F.map((f, i) =>
+    `<button class="tab ${i === selF ? 'active' : ''}" data-i="${i}" style="--c:${fixtures[i]?.color.getHex() ? '#' + fixtures[i].color.getHexString() : '#666'}">` +
+    `<i></i>S${i + 1}<small>U${f.universe}.${f.address}</small></button>`).join('') +
+    `<button class="tab add" data-act="add" ${F.length >= 16 ? 'disabled' : ''} title="Ajouter un projecteur">+</button>` +
+    `<button class="tab add" data-act="remove" ${F.length < 1 ? 'disabled' : ''} title="Retirer le projecteur sélectionné">−</button>` +
+    (F.length ? '' : '<span class="empty">Aucun projecteur</span>');
+}
+ftabsEl.addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b || b.disabled) return;
+  if (b.dataset.act === 'add') {
+    const prev = F[F.length - 1];
+    const f = fixtureDefaults(F.length, G.roomH, 1);
+    if (prev) { f.profile = prev.profile; f.universe = prev.universe; f.mount = prev.mount; f.py = prev.py; f.pz = prev.pz; }
+    f.address = nextFreeAddress(f.universe);
+    F.push(f);
+    selF = F.length - 1;
+  } else if (b.dataset.act === 'remove') {
+    F.splice(selF, 1);
+  } else {
+    selF = Number(b.dataset.i);
+  }
+  ensureFixtures();
+  save();
+  refreshUI();
+});
+
+/** Canaux du projecteur sélectionné avec leur valeur DMX en direct. */
+function renderChannels() {
+  const f = F[selF];
+  if (!channelsEl || !f) return;
+  const p = FIXTURE_PROFILES[f.profile];
+  const data = dmxUniverse(f.universe);
+  channelsEl.innerHTML = '<p class="hint">Canaux (valeur reçue 0-255) :</p>' + p.channels.map((name, k) => {
+    const a = f.address - 1 + k;
+    const v = data && a < 512 ? data[a] : '–';
+    return `<div><b>${a + 1}</b><span>${name}</span><em>${v}</em></div>`;
+  }).join('');
+}
+
+function renderDmxInfo(list) {
+  const el = document.getElementById('dmxinfo');
+  const live = (list || []).filter((u) => u.age < 3000);
+  el.innerHTML = live.length
+    ? live.map((u) => `<span class="good">● ${u.proto === 'artnet' ? 'Art-Net' : 'sACN'} univers ${u.universe}</span> ${u.hz} Hz depuis ${u.from}`).join('<br>')
+    : '<span class="dim">Aucun DMX reçu. Dans TouchDesigner : DMX Out CHOP, Art-Net ou sACN, adresse 127.0.0.1.</span>';
 }
 tabsEl.addEventListener('click', (e) => {
   const b = e.target.closest('button');
@@ -980,6 +1126,7 @@ function renderDac() {
   const l = lasers[sel];
   selTitleEl.innerHTML = l ? `<i style="background:${TAG_COLORS[sel % TAG_COLORS.length]}"></i>Laser ${sel + 1} <small>127.0.0.1 : ${l.status?.port ?? '…'}</small>` : '';
   const s = l?.status;
+  if (!lasers.length && lastStatus) { dacEl.innerHTML = '<span class="dim">Aucun laser dans la scène. Ajoute-en avec le bouton + de la section Lasers.</span>'; return; }
   if (!s) { dacEl.innerHTML = '<span class="badtxt">En attente du serveur Etherhaze…</span>'; return; }
   const row = (a, b) => `<div class="row"><span>${a}</span><span>${b}</span></div>`;
   dacEl.innerHTML =
@@ -1003,7 +1150,7 @@ function renderOverview() {
       `<b>L${i + 1}</b><span>port ${s?.port ?? '…'}</span><em>${state}</em></li>`;
   }).join('');
   const any = lasers.some((l) => l.sim.streaming);
-  waitingEl.classList.toggle('hidden', any);
+  waitingEl.classList.toggle('hidden', any || !lasers.length);
   document.getElementById('ports').innerHTML = lasers.map((l, i) =>
     `<div><i style="background:${TAG_COLORS[i % TAG_COLORS.length]}"></i>Laser ${i + 1} → <code>127.0.0.1</code> port <code>${l.status?.port ?? '…'}</code></div>`).join('');
 }
@@ -1105,6 +1252,10 @@ function connect() {
   ws.onmessage = (m) => {
     if (typeof m.data !== 'string') {
       const dv = new DataView(m.data);
+      if (dv.getUint8(0) === 3) { // univers DMX
+        dmxData.set(`${dv.getUint8(1) === 0 ? 'artnet' : 'sacn'}:${dv.getUint16(2, true)}`, new Uint8Array(m.data, 4, 512));
+        return;
+      }
       const l = lasers[dv.getUint8(1)];
       const n = dv.getUint16(2, true), rate = dv.getUint32(4, true);
       if (l && n && rate) l.sim.processChunk(dv, n, rate);
@@ -1121,6 +1272,8 @@ function connect() {
       }
       msg.lasers.forEach((s, i) => { if (lasers[i]) lasers[i].status = s; });
       renderDac();
+      renderDmxInfo(msg.dmx);
+      renderChannels();
     } else if (msg.type === 'event') addEvent(msg);
     else if (msg.type === 'history') { events.length = 0; events.push(...msg.events); renderLog(); }
   };
@@ -1131,9 +1284,74 @@ function connect() {
   };
 }
 
+// ================================================================ scènes
+// Une scène = tout l'état (salle, fumée, rendu, lasers, projecteurs, vues) + nombre de lasers + caméra.
+const sceneListEl = document.getElementById('sceneList');
+const sceneMsgEl = document.getElementById('sceneMsg');
+let currentScene = '';
+
+async function refreshSceneList(selectName = currentScene) {
+  let names = [];
+  try { names = await (await fetch('/api/scenes')).json(); } catch {}
+  sceneListEl.innerHTML = '<option value="">— scènes enregistrées —</option>' +
+    names.map((n) => `<option ${n === selectName ? 'selected' : ''}>${n.replace(/</g, '&lt;')}</option>`).join('');
+}
+
+function sceneMessage(txt, ok = true) {
+  sceneMsgEl.textContent = txt;
+  sceneMsgEl.className = ok ? 'good' : 'badtxt';
+  clearTimeout(sceneMessage.t);
+  sceneMessage.t = setTimeout(() => { sceneMsgEl.textContent = ''; }, 4000);
+}
+
+async function saveScene() {
+  const name = prompt('Nom de la scène :', currentScene || 'Ma scène');
+  if (!name) return;
+  const scene = {
+    app: 'etherhaze', version: 1, ...snapshot(), lasers: lasers.length,
+    camera: { pos: camera.position.toArray(), target: orbit.target.toArray() },
+  };
+  try {
+    const r = await (await fetch(`/api/scenes/${encodeURIComponent(name)}`, { method: 'POST', body: JSON.stringify(scene) })).json();
+    if (!r.ok) throw new Error(r.error);
+    currentScene = r.name;
+    await refreshSceneList(r.name);
+    sceneMessage(`Scène « ${r.name} » enregistrée`);
+  } catch (e) { sceneMessage(`Échec de l'enregistrement : ${e.message}`, false); }
+}
+
+async function loadScene(name) {
+  if (!name) return;
+  let scene;
+  try {
+    const r = await fetch(`/api/scenes/${encodeURIComponent(name)}`);
+    scene = await r.json();
+    if (!r.ok) throw new Error(scene.error);
+  } catch (e) { return sceneMessage(`Impossible de charger : ${e.message}`, false); }
+  applyState(scene);
+  // Les objets existants pointent vers les anciens réglages : on les rebranche.
+  lasers.forEach((l, i) => { l.cfg = l.sim.cfg = cfgOf(i); l.sim.updateColor(); });
+  ensureFixtures();
+  if (Number.isInteger(scene.lasers)) ws?.send(JSON.stringify({ type: 'setLasers', count: scene.lasers }));
+  if (scene.camera) tween = { start: performance.now(), p0: camera.position.clone(), t0: orbit.target.clone(), p1: new THREE.Vector3(...scene.camera.pos), t1: new THREE.Vector3(...scene.camera.target) };
+  currentScene = name;
+  resize();
+  updateScene();
+  refreshUI();
+  renderViews();
+  save();
+  sceneMessage(`Scène « ${name} » chargée`);
+}
+
+document.getElementById('sceneSave').addEventListener('click', saveScene);
+document.getElementById('sceneLoad').addEventListener('click', () => loadScene(sceneListEl.value));
+sceneListEl.addEventListener('dblclick', () => loadScene(sceneListEl.value));
+
 // ================================================================ boucle
 buildUI();
-ensureLasers(1);
+renderViews();
+refreshSceneList();
+ensureFixtures();
 updateScene();
 resize();
 refreshUI();
@@ -1170,6 +1388,9 @@ function frame() {
 
   const active = lasers.filter((l) => l.cfg.visible && l.sim.streaming).length || 1;
   const budget = Math.max(3000, QUALITY[G.quality] / active);
+  u.uSpotGain.value = G.fixtureGain * G.exposure;
+  for (const fx of fixtures) fx.update(dmxUniverse(fx.cfg.universe), now / 1000, G.roomH);
+
   let aud = false;
   const t0 = performance.now();
   for (const l of lasers) aud = buildBeams(l, now, budget) || aud;

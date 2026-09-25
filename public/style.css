@@ -31,7 +31,22 @@ h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px; color: v
 h3.per-laser { color: var(--tag); }
 h3.per-laser::after { content: " · laser sélectionné"; color: var(--dim); text-transform: none; letter-spacing: 0; font-weight: 400; }
 
-#tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 2px; }
+#scenebar { display: grid; grid-template-columns: 1fr auto auto; gap: 4px; margin: 4px 0 6px; }
+#scenebar select { min-width: 0; background: #0e0b1a; color: var(--text); border: 1px solid var(--line); border-radius: 4px; padding: 4px; }
+#scenebar button { background: #1f1836; color: var(--text); border: 1px solid var(--line); border-radius: 4px; padding: 4px 8px; cursor: pointer; font: 12px system-ui, sans-serif; }
+#scenebar button:hover { border-color: var(--accent); }
+#scenebar small { grid-column: 1 / -1; min-height: 1em; font-size: 11px; }
+h2.block { color: var(--text); font-size: 12px; letter-spacing: 1.5px; margin: 14px 0 4px; padding-top: 10px; border-top: 1px solid var(--line); }
+.empty { align-self: center; font-size: 11px; color: var(--dim); margin-left: 4px; }
+.dim { color: var(--dim); }
+#dmxinfo { margin: 0 0 6px; line-height: 1.5; }
+.channels { margin: 6px 0; font-size: 11px; }
+.channels div { display: grid; grid-template-columns: 34px 1fr 30px; padding: 1px 0; border-bottom: 1px dashed #1f1a33; }
+.channels b { color: var(--accent2); font-weight: 600; }
+.channels em { font-style: normal; text-align: right; color: var(--dim); font-variant-numeric: tabular-nums; }
+#views .sep { width: 1px; background: var(--line); margin: 2px 2px; }
+#views button.user { color: var(--accent2); }
+#ftabs, #tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 2px; }
 .tab { position: relative; flex: 0 0 auto; min-width: 46px; background: #151126; color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px 4px 20px; font: 600 12px system-ui, sans-serif; cursor: pointer; text-align: left; }
 .tab small { display: block; font-weight: 400; font-size: 9px; color: var(--dim); }
 .tab i { position: absolute; left: 7px; top: 9px; width: 8px; height: 8px; border-radius: 50%; background: var(--c); box-shadow: 0 0 6px var(--c); }

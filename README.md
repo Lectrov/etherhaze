@@ -17,8 +17,10 @@ Un show qui marche sur l'écran peut mal passer sur un vrai laser : buffer du DA
 - **Plusieurs lasers** (jusqu'à 8), chacun sur son port, avec ses propres réglages et sa position dans la salle.
 - **Défauts simulés** : vitesse et réglage des galvos, angle de scan, axes inversés, modulation analogique ou TTL, seuil des diodes, gamma, retard de la couleur, puissances R/G/B (le blanc réel).
 - **Rendu 3D** : faisceaux dans la haze et la fumée (densité, taille des nuages, vent, montée, tourbillons), impacts au sol et sur les murs, silhouettes pour l'échelle.
+- **Projecteurs DMX** (Art-Net et sACN) : PAR RGB, PAR RGBW, lyres wash et beam, avec univers et adresse comme dans ton patch. Faisceaux dans la fumée, flaques de lumière au sol, pan/tilt, dimmer, zoom, strobe.
+- **Scènes** : enregistre et recharge une scène complète (lasers, projecteurs, salle, fumée, rendu, vues caméra). Les fichiers vont dans `scenes/`.
 - **Public** : silhouettes 2D à contre-jour (téléphones allumés, bras levés) ou low-poly 3D. Tu peux déposer tes propres PNG détourés dans `public/crowd/`.
-- **Vues rapides** (public, scène, dessus, côté, derrière le laser) et mode plein écran (touche H).
+- **Vues rapides** (touches 1 à 8 : fond de salle, dans la foule, premier rang, régie, scène, dessus, côté, derrière le laser), **vues perso enregistrables** (bouton « + Vue », clic droit pour supprimer) et mode plein écran (touche H).
 - **Vue galvos** : ce que le logiciel envoie comparé à ce que les galvos tracent vraiment.
 - **Alertes en direct** : buffer vide ou débordé, point rate trop élevé, formes déformées, sauts allumés (blanking manquant), scintillement (images/s mesurées), couleurs invisibles, **faisceau dans la zone public**.
 
@@ -52,12 +54,25 @@ Le nombre de lasers se règle avec les boutons **+** et **−** au-dessus des r�
 
 **MadMapper** trouve le DAC tout seul, mais uniquement le laser 1 : la découverte automatique utilise le port standard 7765.
 
+## Brancher les projecteurs DMX
+
+Dans TouchDesigner, un **DMX Out CHOP** :
+
+| Paramètre | Valeur |
+|---|---|
+| Interface | `Art-Net` (ou `sACN`) |
+| Network Address | `127.0.0.1` (ou l'IP du PC qui fait tourner Etherhaze) |
+| Univers | celui réglé sur le projecteur dans Etherhaze (Art-Net commence à 0, sACN à 1) |
+
+Dans Etherhaze, section **Projecteurs DMX** : ajoute un projecteur avec **+**, choisis son type, son univers et son adresse. La liste des canaux (avec la valeur reçue en direct) te donne l'ordre à respecter dans le CHOP. Les adresses se suivent automatiquement quand tu ajoutes des projecteurs du même type.
+
 ## Tester sans logiciel
 
 ```bash
 npm run test-sender                       # mire propre, laser 1
 node tools/test-sender.js --bad           # mire pleine d'erreurs
 node tools/test-sender.js --port 7766     # vers le laser 2
+npm run dmx-test                          # anime 4 lyres wash en Art-Net (univers 0, adresses 1, 10, 19, 28)
 ```
 
 ## Conseils TouchDesigner tirés des tests
@@ -72,6 +87,9 @@ node tools/test-sender.js --port 7766     # vers le laser 2
 ```
 server.js           serveur web + gestion des lasers + annonce UDP
 lib/dac.js          un Ether Dream émulé (protocole TCP, buffer, lecture)
+lib/dmx.js          réception Art-Net / sACN
+public/fixtures.js  projecteurs DMX (profils de canaux, rendu)
+public/crowd.js     silhouettes du public
 public/sim.js       simulation d'un projecteur (galvos, couleurs, mesures)
 public/app.js       interface, rendu 3D (three.js), alertes
 tools/test-sender.js  émetteur Ether Dream de test
