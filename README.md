@@ -1,109 +1,83 @@
 <p align="center"><img src="public/logo.svg" alt="Etherhaze" width="560"></p>
 
-<p align="center"><b>Émulateur Ether Dream + simulateur de laser RGB dans la fumée.</b><br>
-Prépare ton show laser dans TouchDesigner ou MadMapper, sans laser.</p>
+<p align="center"><b>Ether Dream emulator and RGB laser simulator for haze and smoke.</b><br>Build and test laser shows in TouchDesigner or MadMapper—without a physical laser.</p>
 
-> **EN:** Etherhaze pretends to be one or more Ether Dream laser DACs on your network, so TouchDesigner or MadMapper stream to it exactly like to the real hardware. It then simulates what a real RGB laser would do (galvo inertia, color modulation limits, blanking tails, flicker) and renders the beams in haze and smoke in 3D, with live alerts. The UI is in French.
+Etherhaze pretends to be one or more Ether Dream laser DACs on your network. TouchDesigner or MadMapper can stream to it exactly as they would to real hardware. It simulates galvo inertia, color-modulation limits, blanking tails, and flicker, then renders beams in 3D haze and smoke with live alerts.
 
----
+## Features
 
-## Pourquoi
-
-Un show qui marche sur l'écran peut mal passer sur un vrai laser : buffer du DAC qui déborde, coupures, formes déformées par des galvos trop lents, traînées au blanking, couleurs sombres qui ne s'allument pas… Etherhaze reproduit le **protocole réseau exact de l'Ether Dream** (d'après le firmware open source) et **simule les défauts d'un vrai projecteur**, pour que tu les voies avant le jour J.
-
-## Fonctions
-
-- **Faux Ether Dream sur le réseau** : même protocole TCP, même annonce UDP, même buffer de 1799 points, mêmes refus d'erreur que le vrai boîtier.
-- **Plusieurs lasers** (jusqu'à 8), chacun sur son port, avec ses propres réglages et sa position dans la salle.
-- **Défauts simulés** : vitesse et réglage des galvos, angle de scan, axes inversés, modulation analogique ou TTL, seuil des diodes, gamma, retard de la couleur, puissances R/G/B (le blanc réel).
-- **Rendu 3D** : faisceaux dans la haze et la fumée (densité, taille des nuages, vent, montée, tourbillons), impacts au sol et sur les murs, silhouettes pour l'échelle.
-- **Projecteurs DMX** (Art-Net et sACN) : PAR RGB, PAR RGBW, lyres wash et beam, avec univers et adresse comme dans ton patch. Faisceaux dans la fumée, flaques de lumière au sol, pan/tilt, dimmer, zoom, strobe.
-- **Scènes** : enregistre et recharge une scène complète (lasers, projecteurs, salle, fumée, rendu, vues caméra). Les fichiers vont dans `scenes/`.
-- **Public** : silhouettes 2D à contre-jour (téléphones allumés, bras levés) ou low-poly 3D. Tu peux déposer tes propres PNG détourés dans `public/crowd/`.
-- **Vues rapides** (touches 1 à 8 : fond de salle, dans la foule, premier rang, régie, scène, dessus, côté, derrière le laser), **vues perso enregistrables** (bouton « + Vue », clic droit pour supprimer) et mode plein écran (touche H).
-- **Vue galvos** : ce que le logiciel envoie comparé à ce que les galvos tracent vraiment.
-- **Alertes en direct** : buffer vide ou débordé, point rate trop élevé, formes déformées, sauts allumés (blanking manquant), scintillement (images/s mesurées), couleurs invisibles, **faisceau dans la zone public**.
+- Ether Dream TCP and UDP-discovery emulator with a 1,799-point buffer.
+- Up to eight independently positioned and configured lasers.
+- Simulated galvo, scan-angle, color, TTL/analog, gamma, diode-threshold, and color-delay limitations.
+- 3D beams in haze and smoke, with wind, clouds, floor and wall impacts, and crowd silhouettes.
+- Art-Net and sACN DMX fixture simulation: RGB/RGBW PARs plus wash and beam moving heads.
+- Saved scenes, quick camera views, a galvo scope, and live DAC, quality, and audience-zone alerts.
 
 ## Installation
 
-Il faut [Node.js](https://nodejs.org) 18 ou plus récent.
+Install [Node.js](https://nodejs.org) 18 or newer.
 
 ```bash
-git clone https://github.com/<ton-compte>/etherhaze.git
+git clone https://github.com/Lectrov/etherhaze.git
 cd etherhaze
 npm install
 npm start
 ```
 
-Sous Windows, tu peux aussi double-cliquer sur **`start.bat`**. Le visualiseur s'ouvre sur <http://localhost:8080>.
+On Windows, you can also double-click **`start.bat`**. Open <http://localhost:8080>.
 
-Au premier lancement, Windows demande l'accès réseau pour Node : autorise les **réseaux privés**.
+## TouchDesigner setup
 
-## Brancher TouchDesigner
+Create one **Laser Device CHOP** per laser:
 
-Un **Laser Device CHOP** par laser :
-
-| Paramètre | Valeur |
+| Parameter | Value |
 |---|---|
 | Type | `EtherDream` |
-| Network Address | `127.0.0.1` (ou l'IP du PC qui fait tourner Etherhaze) |
-| Network Port | `7765` pour le laser 1, `7766` pour le laser 2, etc. |
-| Queue Time | `0.05` à 30 000 pps (règle : Queue Time × point rate < 1799) |
+| Network Address | `127.0.0.1`, or the Etherhaze computer IP |
+| Network Port | `7765` for laser 1, `7766` for laser 2, and so on |
+| Queue Time | `0.05` at 30,000 pps; keep Queue Time × point rate below 1799 |
 
-Le nombre de lasers se règle avec les boutons **+** et **−** au-dessus des réglages.
+MadMapper automatically discovers laser 1 on the standard port, 7765.
 
-**MadMapper** trouve le DAC tout seul, mais uniquement le laser 1 : la découverte automatique utilise le port standard 7765.
+For DMX, use a **DMX Out CHOP** with Art-Net or sACN and the Etherhaze computer address. In Etherhaze, add fixtures, configure their universe and address, and use the live channel list as the required CHOP channel order. Art-Net universes start at 0; sACN universes start at 1.
 
-## Brancher les projecteurs DMX
-
-Dans TouchDesigner, un **DMX Out CHOP** :
-
-| Paramètre | Valeur |
-|---|---|
-| Interface | `Art-Net` (ou `sACN`) |
-| Network Address | `127.0.0.1` (ou l'IP du PC qui fait tourner Etherhaze) |
-| Univers | celui réglé sur le projecteur dans Etherhaze (Art-Net commence à 0, sACN à 1) |
-
-Dans Etherhaze, section **Projecteurs DMX** : ajoute un projecteur avec **+**, choisis son type, son univers et son adresse. La liste des canaux (avec la valeur reçue en direct) te donne l'ordre à respecter dans le CHOP. Les adresses se suivent automatiquement quand tu ajoutes des projecteurs du même type.
-
-## Tester sans logiciel
+## Test without a laser application
 
 ```bash
-npm run test-sender                       # mire propre, laser 1
-node tools/test-sender.js --bad           # mire pleine d'erreurs
-node tools/test-sender.js --port 7766     # vers le laser 2
-npm run dmx-test                          # anime 4 lyres wash en Art-Net (univers 0, adresses 1, 10, 19, 28)
+npm run test-sender                       # clean pattern, laser 1
+node tools/test-sender.js --bad           # deliberately broken pattern
+node tools/test-sender.js --port 7766     # target laser 2
+npm run dmx-test                          # animate wash moving heads over Art-Net
 ```
 
-## Conseils TouchDesigner tirés des tests
+## Performance guidance
 
-- **Queue Time × point rate doit rester sous 1799**, sinon le vrai Ether Dream jette des points et TouchDesigner relance le flux en boucle.
-- **TouchDesigner doit tenir ses fps.** Un blocage de plus de ~50 ms vide le buffer et le laser coupe. Pour le show, utilise le mode Perform (F1).
-- **Vise 40 à 150 images/s** dans l'alerte de rafraîchissement : en dessous ça scintille, au-dessus les galvos ne suivent plus.
-- Les formes en **POP** sont plus légères que les SOP pour un contenu animé.
+- Keep **Queue Time × point rate below 1799** or the DAC drops points.
+- Keep TouchDesigner responsive: a pause of roughly 50 ms can empty the buffer and stop playback.
+- Target **40–150 fps** in the refresh-rate alert. Below this range, flicker can be visible; above it, galvos may not keep up.
+- **POPs** are generally lighter than SOPs for animated laser content.
 
-## Structure
+## Project structure
 
+```text
+server.js              web server, laser management, and UDP discovery
+lib/dac.js             Ether Dream emulator, TCP protocol, buffer, playback
+lib/dmx.js             Art-Net and sACN receiver
+public/fixtures.js     DMX fixture profiles and rendering
+public/crowd.js        crowd silhouettes
+public/sim.js          projector simulation
+public/app.js          UI, Three.js rendering, and alerts
+tools/test-sender.js   Ether Dream test sender
 ```
-server.js           serveur web + gestion des lasers + annonce UDP
-lib/dac.js          un Ether Dream émulé (protocole TCP, buffer, lecture)
-lib/dmx.js          réception Art-Net / sACN
-public/fixtures.js  projecteurs DMX (profils de canaux, rendu)
-public/crowd.js     silhouettes du public
-public/sim.js       simulation d'un projecteur (galvos, couleurs, mesures)
-public/app.js       interface, rendu 3D (three.js), alertes
-tools/test-sender.js  émetteur Ether Dream de test
-```
 
-## Limites
+## Limitations and laser safety
 
-- Le **protocole** est fidèle au firmware open source de l'Ether Dream : ce qui marche ici marchera avec le boîtier. Les modèles les plus récents ont peut-être un buffer plus grand.
-- La **physique des galvos et des diodes est une approximation** : les profils sont des ordres de grandeur, pas des modèles précis. Garde quelques minutes au premier branchement réel pour régler le color shift, la taille et l'orientation.
-- Le visualiseur consomme du CPU et du GPU. Sur le même PC que TouchDesigner, passe la **Qualité du rendu** sur « Légère » si TouchDesigner perd des fps.
-- La détection de **faisceau dans le public** est une aide, pas une étude de sécurité laser.
+- The protocol follows the open-source Ether Dream firmware; newer hardware revisions may use a larger buffer.
+- Galvo and diode physics are useful approximations, not a replacement for calibration on real equipment.
+- The audience-beam alert is a warning, **not a laser-safety assessment**. Any real installation—especially audience scanning—must be designed, measured, and approved by qualified laser-safety professionals under applicable local regulations.
 
-## Licence
+## License
 
-MIT. Voir [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
 
-Ether Dream est une marque de ses propriétaires respectifs. Etherhaze est un projet indépendant qui émule le protocole public du DAC.
+Ether Dream is a trademark of its respective owners. Etherhaze is an independent project that emulates the public DAC protocol.

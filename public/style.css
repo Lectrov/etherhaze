@@ -29,7 +29,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
 h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--dim); margin: 16px 0 6px; font-weight: 600; }
 h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px; color: var(--accent2); margin: 18px 0 6px; padding-top: 10px; border-top: 1px solid var(--line); }
 h3.per-laser { color: var(--tag); }
-h3.per-laser::after { content: " · laser sélectionné"; color: var(--dim); text-transform: none; letter-spacing: 0; font-weight: 400; }
+h3.per-laser::after { content: " · selected laser"; color: var(--dim); text-transform: none; letter-spacing: 0; font-weight: 400; }
 
 #scenebar { display: grid; grid-template-columns: 1fr auto auto; gap: 4px; margin: 4px 0 6px; }
 #scenebar select { min-width: 0; background: #0e0b1a; color: var(--text); border: 1px solid var(--line); border-radius: 4px; padding: 4px; }

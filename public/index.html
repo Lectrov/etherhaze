@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="fr">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -16,12 +16,12 @@
 <aside id="left" class="panel">
   <header class="brand">
     <img src="logo.svg" alt="Etherhaze">
-    <p>Émulateur Ether Dream et simulateur laser</p>
+    <p>Ether Dream emulator and laser simulator</p>
   </header>
   <div id="scenebar">
-    <select id="sceneList" title="Double-clic pour charger"></select>
-    <button id="sceneLoad">Charger</button>
-    <button id="sceneSave">Enregistrer</button>
+    <select id="sceneList" title="Double-click to load"></select>
+    <button id="sceneLoad">Load</button>
+    <button id="sceneSave">Save</button>
     <small id="sceneMsg"></small>
   </div>
 
@@ -29,7 +29,7 @@
   <div id="tabs"></div>
   <div id="lcontrols"></div>
 
-  <h2 class="block">Projecteurs DMX</h2>
+  <h2 class="block">DMX Fixtures</h2>
   <p id="dmxinfo" class="hint"></p>
   <div id="ftabs"></div>
   <div id="fcontrols"></div>
@@ -40,24 +40,24 @@
 <aside id="right" class="panel">
   <h2 id="seltitle"></h2>
   <section>
-    <h2>Sortie galvos (vue du laser)</h2>
+    <h2>Galvo Output (Laser View)</h2>
     <canvas id="scope" width="560" height="560"></canvas>
-    <div class="legend"><span class="ideal">— envoyé par le logiciel</span><span>— tracé réel simulé</span></div>
+    <div class="legend"><span class="ideal">— sent by software</span><span>— simulated real path</span></div>
   </section>
   <section>
     <h2>DAC</h2>
     <div id="dac"></div>
   </section>
   <section>
-    <h2>Alertes</h2>
+    <h2>Alerts</h2>
     <ul id="alerts"></ul>
   </section>
   <section>
-    <h2>Tous les lasers</h2>
+    <h2>All Lasers</h2>
     <ul id="overview"></ul>
   </section>
   <section>
-    <h2>Journal</h2>
+    <h2>Log</h2>
     <ul id="log"></ul>
   </section>
 </aside>
@@ -65,11 +65,11 @@
 <nav id="views"></nav>
 
 <div id="waiting">
-  <h2>En attente d'un flux Ether Dream…</h2>
+  <h2>Waiting for an Ether Dream stream…</h2>
   <div id="ports"></div>
   <p><b>TouchDesigner</b> : un <i>Laser Device CHOP</i> par laser, type <i>EtherDream</i>, Network Address et Network Port ci-dessus.</p>
-  <p><b>MadMapper</b> : le DAC apparaît tout seul (laser 1 seulement, la découverte automatique utilise le port 7765).</p>
-  <p>Test sans logiciel : <code>npm run test-sender</code></p>
+  <p><b>MadMapper</b>: the DAC appears automatically (laser 1 only; discovery uses port 7765).</p>
+  <p>Test without laser software: <code>npm run test-sender</code></p>
 </div>
 
 <script type="module" src="app.js"></script>
