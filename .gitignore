@@ -5,6 +5,8 @@ scenes/
 # Fichiers perso / TouchDesigner
 Backup/
 *.toe
+!TouchDesigner/
+!TouchDesigner/laserBase.toe
 stat.txt
 
 # Images de public perso (droits)
